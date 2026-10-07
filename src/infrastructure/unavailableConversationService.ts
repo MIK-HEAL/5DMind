@@ -1,0 +1,70 @@
+import type { ConversationService, SendMessageInput } from "../domain/services";
+import type { ContextSnapshot, Conversation, MessageEvent, WorkspaceSnapshot } from "../domain/types";
+import { getTimeline, getTimelineNodes, isFocusedInquiry } from "../domain/selectors";
+
+// TODO(5dmind-integration): Replace this explicit failure adapter with the local
+// Tauri ModelGateway once a real provider, cancellation, and retry policy exist.
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+function connectionError(model?: string) {
+  return model
+    ? {
+      status: 503,
+      code: "MODEL_GATEWAY_UNAVAILABLE",
+      detail: "当前运行时无法连接已选择的模型服务。",
+    }
+    : {
+      status: 400,
+      code: "MODEL_NOT_CONFIGURED",
+      detail: "当前 Agent 尚未配置可用模型。",
+    };
+}
+
+export class UnavailableConversationService implements ConversationService {
+  constructor(private readonly getSnapshot: () => WorkspaceSnapshot) {}
+
+  async createConversation(title: string): Promise<Conversation> {
+    const now = new Date().toISOString();
+    return {
+      id: crypto.randomUUID(), title, summary: "新的对话工作区", color: "#206b5a",
+      createdAt: now, updatedAt: now,
+    };
+  }
+
+  async *sendMessage(input: SendMessageInput): AsyncIterable<MessageEvent> {
+    const { timelineId, model } = input;
+    const now = new Date().toISOString();
+    const messageId = crypto.randomUUID();
+    const timelineNodes = getTimelineNodes(this.getSnapshot(), timelineId).filter((node) => !isFocusedInquiry(node));
+    const failure = connectionError(model);
+    const error = `HTTP ${failure.status} · ${failure.code}: ${failure.detail}`;
+    const content = `无法生成回复\n\n${error}\n\n请打开设置 > 模型服务，配置 Provider 和模型后重试。`;
+
+    yield {
+      type: "message.started",
+      message: {
+        id: messageId,
+        timelineId,
+        parentNodeId: timelineNodes.at(-1)?.id,
+        kind: "assistant",
+        content,
+        summary: "模型服务不可用",
+        status: "streaming",
+        createdAt: now,
+        metadata: { model: model || "未配置模型", author: "连接检查" },
+      },
+    };
+
+    await sleep(180);
+    yield { type: "message.failed", messageId, error };
+  }
+
+  async getContext(timelineId: string): Promise<ContextSnapshot> {
+    const snapshot = this.getSnapshot();
+    const timeline = getTimeline(snapshot, timelineId);
+    const nodes = getTimelineNodes(snapshot, timelineId).filter((node) => !isFocusedInquiry(node));
+    const inheritedNodeCount = nodes.filter((node) => node.timelineId !== timelineId).length;
+    return { timeline, nodes, inheritedNodeCount };
+  }
+}

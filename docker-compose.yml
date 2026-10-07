@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: 5dmind
+      POSTGRES_USER: 5dmind
+      POSTGRES_PASSWORD: 5dmind
+    ports:
+      - "5432:5432"
+    volumes:
+      - 5dmind-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U 5dmind -d 5dmind"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://5dmind:5dmind@postgres:5432/5dmind
+      AUTH_MODE: disabled
+      CORS_ORIGIN: http://127.0.0.1:1420
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  5dmind-postgres:
