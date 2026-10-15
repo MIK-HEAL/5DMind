@@ -51,6 +51,7 @@ export interface ConversationNode {
     model?: string;
     author?: string;
     boardName?: string;
+    reasoning?: string;
     tags?: string[];
   };
 }

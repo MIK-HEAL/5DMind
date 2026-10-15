@@ -887,6 +887,21 @@ fn stream_line_delta(provider_type: &str, line: &str) -> Option<String> {
     response_text(&value, paths).filter(|delta| !delta.is_empty())
 }
 
+fn stream_line_reasoning(provider_type: &str, line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with(':') || line.starts_with("event:") || line.starts_with("id:") {
+        return None;
+    }
+    let payload = line.strip_prefix("data:").map(str::trim).unwrap_or(line);
+    if payload.is_empty() || payload == "[DONE]" { return None; }
+    let value = serde_json::from_str::<Value>(payload).ok()?;
+    let paths: &[&[&str]] = match provider_type {
+        "anthropic" => &[&["delta", "thinking"], &["delta", "reasoning_content"]],
+        _ => &[&["choices", "0", "delta", "reasoning_content"], &["choices", "0", "delta", "reasoning"], &["choices", "0", "delta", "thinking"], &["reasoning_content"], &["reasoning"]],
+    };
+    response_text(&value, paths).filter(|delta| !delta.is_empty())
+}
+
 fn emit_stream_event(
     channel: &tauri::ipc::Channel<ProviderStreamEvent>,
     event: ProviderStreamEvent,
@@ -947,6 +962,8 @@ async fn complete_remote_stream(
 
     let mut pending = Vec::new();
     let mut content = String::new();
+    let mut reasoning_started = false;
+    let mut reasoning_closed = false;
     while let Some(chunk) = response.chunk().await.map_err(|error| {
         format!(
             "读取 Provider 流失败：{}",
@@ -958,8 +975,13 @@ async fn complete_remote_stream(
             let line = pending.drain(..=index).collect::<Vec<_>>();
             let line =
                 String::from_utf8(line).map_err(|_| "Provider 流包含无效 UTF-8".to_string())?;
-            if let Some(delta) = stream_line_delta(provider_type, &line) {
-                content.push_str(&delta);
+            if let Some(delta) = stream_line_reasoning(provider_type, &line) {
+                let output = if reasoning_started { delta } else { reasoning_started = true; format!("<think>{delta}") };
+                content.push_str(&output);
+                emit_stream_event(channel, ProviderStreamEvent { event: "delta".to_string(), message_id: message_id.to_string(), model: model.to_string(), relation: None, inquiry_root_id: None, focus_selection: None, delta: Some(output), error: None })?;
+            } else if let Some(delta) = stream_line_delta(provider_type, &line) {
+                let output = if reasoning_started && !reasoning_closed { reasoning_closed = true; format!("</think>{delta}") } else { delta };
+                content.push_str(&output);
                 emit_stream_event(
                     channel,
                     ProviderStreamEvent {
@@ -969,7 +991,7 @@ async fn complete_remote_stream(
                         relation: None,
                         inquiry_root_id: None,
                         focus_selection: None,
-                        delta: Some(delta),
+                        delta: Some(output),
                         error: None,
                     },
                 )?;
@@ -979,8 +1001,13 @@ async fn complete_remote_stream(
     if !pending.is_empty() {
         let line =
             String::from_utf8(pending).map_err(|_| "Provider 流包含无效 UTF-8".to_string())?;
-        if let Some(delta) = stream_line_delta(provider_type, &line) {
-            content.push_str(&delta);
+        if let Some(delta) = stream_line_reasoning(provider_type, &line) {
+            let output = if reasoning_started { delta } else { reasoning_started = true; format!("<think>{delta}") };
+            content.push_str(&output);
+            emit_stream_event(channel, ProviderStreamEvent { event: "delta".to_string(), message_id: message_id.to_string(), model: model.to_string(), relation: None, inquiry_root_id: None, focus_selection: None, delta: Some(output), error: None })?;
+        } else if let Some(delta) = stream_line_delta(provider_type, &line) {
+            let output = if reasoning_started && !reasoning_closed { reasoning_closed = true; format!("</think>{delta}") } else { delta };
+            content.push_str(&output);
             emit_stream_event(
                 channel,
                 ProviderStreamEvent {
@@ -990,11 +1017,15 @@ async fn complete_remote_stream(
                     relation: None,
                     inquiry_root_id: None,
                     focus_selection: None,
-                    delta: Some(delta),
+                    delta: Some(output),
                     error: None,
                 },
             )?;
         }
+    }
+    if reasoning_started && !reasoning_closed {
+        content.push_str("</think>");
+        emit_stream_event(channel, ProviderStreamEvent { event: "delta".to_string(), message_id: message_id.to_string(), model: model.to_string(), relation: None, inquiry_root_id: None, focus_selection: None, delta: Some("</think>".to_string()), error: None })?;
     }
     if content.is_empty() {
         return Err("Provider 流中没有文本内容".to_string());

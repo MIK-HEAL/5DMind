@@ -58,6 +58,7 @@ export interface ConversationNode {
     model?: string;
     author?: string;
     boardName?: string;
+    reasoning?: string;
     tags?: string[];
   };
 }
@@ -108,6 +109,7 @@ export interface WorkspaceSnapshot {
 export type MessageEvent =
   | { type: "message.started"; message: ConversationNode }
   | { type: "message.delta"; messageId: NodeId; delta: string }
+  | { type: "message.reasoning_delta"; messageId: NodeId; delta: string }
   | { type: "message.completed"; messageId: NodeId }
   | { type: "message.failed"; messageId: NodeId; error: string };
 

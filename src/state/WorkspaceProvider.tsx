@@ -257,6 +257,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               ? { ...node, content: node.content + event.delta }
               : node),
           }));
+        } else if (event.type === "message.reasoning_delta") {
+          setSnapshot((current) => ({
+            ...current,
+            nodes: current.nodes.map((node) => node.id === event.messageId
+              ? { ...node, metadata: { ...node.metadata, reasoning: `${node.metadata.reasoning ?? ""}${event.delta}` } }
+              : node),
+          }));
         } else if (event.type === "message.completed") {
           setSnapshot((current) => ({
             ...current,
@@ -368,6 +375,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             ...state,
             nodes: state.nodes.map((node) => node.id === event.messageId
               ? { ...node, content: node.content + event.delta }
+              : node),
+          }));
+        } else if (event.type === "message.reasoning_delta") {
+          setSnapshot((state) => ({
+            ...state,
+            nodes: state.nodes.map((node) => node.id === event.messageId
+              ? { ...node, metadata: { ...node.metadata, reasoning: `${node.metadata.reasoning ?? ""}${event.delta}` } }
               : node),
           }));
         } else if (event.type === "message.completed") {

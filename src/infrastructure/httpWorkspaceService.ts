@@ -211,7 +211,12 @@ export class HttpWorkspaceService implements ConversationService, TimelineServic
           if (!item.event || !item.data.length) return undefined;
           const payload = JSON.parse(item.data.join("\n")) as Record<string, unknown>;
           if (item.event === "message.started") return { type: "message.started", message: payload.message as ConversationNode };
-          if (item.event === "message.delta") return { type: "message.delta", messageId: String(payload.messageId), delta: String(payload.delta ?? "") };
+          if (item.event === "message.delta") {
+            const reasoning = payload.reasoning ?? payload.reasoningContent ?? payload.reasoning_content;
+            if (typeof reasoning === "string" && reasoning) return { type: "message.reasoning_delta", messageId: String(payload.messageId), delta: reasoning };
+            return { type: "message.delta", messageId: String(payload.messageId), delta: String(payload.delta ?? "") };
+          }
+          if (item.event === "message.reasoning_delta") return { type: "message.reasoning_delta", messageId: String(payload.messageId), delta: String(payload.delta ?? "") };
           if (item.event === "message.completed") {
             terminal = true;
             return { type: "message.completed", messageId: String(payload.messageId) };
