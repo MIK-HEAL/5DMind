@@ -23,6 +23,7 @@ import type {
   AgentPermissionMode,
   ModelProvider,
   ProviderType,
+  ReasoningEffort,
   SettingsSection,
 } from "../../domain/settings";
 import { runtimeTarget } from "../../infrastructure/runtime";
@@ -277,6 +278,7 @@ function AgentSettings() {
   }, [activeAgent.id, preferences.agents, selectedId]);
 
   const permissionLabels: Record<AgentPermissionMode, string> = { "read-only": "只读", ask: "询问", auto: "自动" };
+  const reasoningLabels: Record<ReasoningEffort, string> = { default: "默认", none: "关闭", low: "低", medium: "中", high: "高" };
   const duplicate = () => {
     const id = duplicateAgent(selected.id);
     if (id) setSelectedId(id);
@@ -313,6 +315,10 @@ function AgentSettings() {
           <div className="agent-control-block">
             <div className="agent-control-heading"><div><strong>创造性</strong><span>较低更稳定，较高更发散</span></div><b>{selected.temperature.toFixed(1)}</b></div>
             <input className="temperature-slider" type="range" min="0" max="2" step="0.1" value={selected.temperature} onChange={(event) => updateAgent(selected.id, { temperature: Number(event.target.value) })} />
+          </div>
+          <div className="agent-control-block">
+            <div className="agent-control-heading"><div><strong>思考强度</strong><span>发送框可对单条消息临时覆盖</span></div><b>{reasoningLabels[selected.reasoningEffort ?? "default"]}</b></div>
+            <div className="segmented-control reasoning-control">{(["default", "none", "low", "medium", "high"] as const).map((effort) => <button type="button" key={effort} className={(selected.reasoningEffort ?? "default") === effort ? "active" : ""} onClick={() => updateAgent(selected.id, { reasoningEffort: effort })}>{reasoningLabels[effort]}</button>)}</div>
           </div>
           <div className="agent-control-block">
             <div className="agent-control-heading"><div><strong>权限模式</strong><span>决定 Agent 使用工具前是否需要确认</span></div></div>

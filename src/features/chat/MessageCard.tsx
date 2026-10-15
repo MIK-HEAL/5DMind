@@ -1,9 +1,12 @@
 import { AlertTriangle, Check, ChevronDown, Copy, GitBranch, Layers2, Link2, MapPin, Merge, Quote } from "lucide-react";
 import Markdown, { type Components } from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { Children, isValidElement, useEffect, useState, type ComponentPropsWithoutRef, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import "katex/dist/katex.min.css";
 import type { ConversationNode, Threat, Timeline } from "../../domain/types";
 import { useSettings } from "../../state/SettingsProvider";
 
@@ -23,6 +26,29 @@ function splitReasoning(content: string) {
   return { reasoning: reasoning.trim(), answer: answer.trim() };
 }
 
+// Models often emit LaTeX display delimiters as `\[`/`\]`. Markdown treats
+// those backslashes as escapes before remark-math sees them, so normalize both
+// forms to the $$ syntax understood by remark-math. Standalone bracket lines
+// are included for older messages that already lost the backslashes.
+function normalizeMathDelimiters(content: string) {
+  const lines = content.split(/\r?\n/);
+  let inDisplay = false;
+  const normalized: string[] = [];
+  for (const line of lines) {
+    const marker = line.trim();
+    if (!inDisplay && (marker === "\\[" || marker === "[")) {
+      normalized.push("$$");
+      inDisplay = true;
+    } else if (inDisplay && (marker === "\\]" || marker === "]")) {
+      normalized.push("$$");
+      inDisplay = false;
+    } else {
+      normalized.push(line);
+    }
+  }
+  return normalized.join("\n").replace(/\\\(([^\n]+?)\\\)/g, "$$$1$$");
+}
+
 function ReasoningBlock({ content, streaming }: { content: string; streaming: boolean }) {
   const [open, setOpen] = useState(streaming);
   useEffect(() => {
@@ -36,7 +62,7 @@ function ReasoningBlock({ content, streaming }: { content: string; streaming: bo
         <span className="message-reasoning-meta">{streaming ? "实时生成" : `${content.length} 字`}</span>
         <ChevronDown size={14} />
       </button>
-      {open && <div className="message-reasoning-content"><Markdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeSanitize]} components={markdownComponents}>{content}</Markdown></div>}
+      {open && <div className="message-reasoning-content"><Markdown remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]} rehypePlugins={[rehypeSanitize, rehypeKatex]} components={markdownComponents}>{normalizeMathDelimiters(content)}</Markdown></div>}
     </section>
   );
 }
@@ -169,11 +195,11 @@ export function MessageCard({
         <div className="message-content" onMouseUp={onSelectText} onPointerUp={onSelectText}>
           {reasoning && <ReasoningBlock content={reasoning} streaming={node.status === "streaming"} />}
           <Markdown
-            remarkPlugins={[remarkGfm, remarkBreaks]}
-            rehypePlugins={[rehypeSanitize]}
+            remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
+            rehypePlugins={[rehypeSanitize, rehypeKatex]}
             components={markdownComponents}
           >
-            {answer}
+            {normalizeMathDelimiters(answer)}
           </Markdown>
           {node.status === "streaming" && <span className="typing-caret" />}
         </div>

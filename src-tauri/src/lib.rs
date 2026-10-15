@@ -39,6 +39,9 @@ struct CompleteMessageInput {
     request_timeout_ms: Option<u64>,
     instructions: Option<String>,
     temperature: Option<f32>,
+    reasoning_effort: Option<String>,
+    #[serde(default)]
+    web_search: bool,
     #[serde(default)]
     history: Vec<ConversationTurnInput>,
 }
@@ -735,7 +738,7 @@ fn remote_body(
     let prompt = input.instructions.as_deref().unwrap_or_default();
     let user_message = user_message(input);
     let temperature = input.temperature.unwrap_or(0.7).clamp(0.0, 2.0);
-    match provider_type {
+    let mut body = match provider_type {
         "anthropic" => serde_json::json!({
             "model": model,
             "max_tokens": 4096,
@@ -773,7 +776,28 @@ fn remote_body(
                 .collect::<Vec<_>>(),
             "temperature": temperature,
         }),
+    };
+    match input.reasoning_effort.as_deref() {
+        Some("none") => {
+            if provider_type == "ollama" { body["think"] = serde_json::json!(false); }
+            if provider_type == "gemini" { body["generationConfig"]["thinkingConfig"] = serde_json::json!({ "thinkingBudget": 0 }); }
+            if provider_type != "anthropic" && provider_type != "ollama" && provider_type != "gemini" { body["reasoning_effort"] = serde_json::json!("none"); }
+        }
+        Some(effort @ ("low" | "medium" | "high")) => {
+            let budget = match effort { "low" => 2048, "medium" => 4096, _ => 8192 };
+            match provider_type {
+                "anthropic" => body["thinking"] = serde_json::json!({ "type": "enabled", "budget_tokens": budget }),
+                "gemini" => body["generationConfig"]["thinkingConfig"] = serde_json::json!({ "thinkingBudget": budget }),
+                "ollama" => body["think"] = serde_json::json!(true),
+                _ => body["reasoning_effort"] = serde_json::json!(effort),
+            }
+        }
+        _ => {}
     }
+    if input.web_search {
+        body["_5dmind"] = serde_json::json!({ "web_search": true });
+    }
+    body
 }
 
 fn with_provider_auth(
@@ -1279,6 +1303,8 @@ mod tests {
                 request_timeout_ms: None,
                 instructions: None,
                 temperature: None,
+                reasoning_effort: None,
+                web_search: false,
                 history: Vec::new(),
             },
             None,
@@ -1315,6 +1341,8 @@ mod tests {
                 request_timeout_ms: None,
                 instructions: None,
                 temperature: None,
+                reasoning_effort: None,
+                web_search: false,
                 history: Vec::new(),
             },
             None,
@@ -1439,6 +1467,8 @@ mod tests {
             request_timeout_ms: None,
             instructions: None,
             temperature: None,
+            reasoning_effort: None,
+            web_search: false,
             history: vec![
                 ConversationTurnInput {
                     role: "system".to_string(),

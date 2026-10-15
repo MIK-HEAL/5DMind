@@ -144,6 +144,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         providerId: provider.id,
         modelId: provider.models[0] ?? "",
         temperature: 0.7,
+        reasoningEffort: "default",
         permissionMode: "ask",
         tools: { webSearch: false, files: true, timeline: true },
         color: "#7a5ba6",

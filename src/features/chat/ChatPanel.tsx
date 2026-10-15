@@ -1,7 +1,8 @@
-import { ArrowUp, Bot, ChevronRight, GitBranch, Paperclip, Quote, ShieldAlert, X } from "lucide-react";
+import { ArrowUp, Bot, Brain, ChevronRight, GitBranch, Globe2, Paperclip, Quote, Settings2, ShieldAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent } from "react";
 import { Select } from "../../components/ui/Select";
 import type { ContextMode, ConversationNode, FocusSelection, Threat } from "../../domain/types";
+import type { ReasoningEffort } from "../../domain/settings";
 import { getFocusedInquiryRoots, getInquiryTree, getTimeline, getTimelineNodes, isFocusedInquiry } from "../../domain/selectors";
 import { useSettings } from "../../state/SettingsProvider";
 import { useWorkspace } from "../../state/WorkspaceProvider";
@@ -64,6 +65,10 @@ export function ChatPanel() {
   const [inquiryComposerOpen, setInquiryComposerOpen] = useState(false);
   const [inquirySending, setInquirySending] = useState(false);
   const [inquiryReplyDrafts, setInquiryReplyDrafts] = useState<Record<string, string>>({});
+  const [composerOptionsOpen, setComposerOptionsOpen] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(activeAgent.reasoningEffort ?? "default");
+  const [webSearch, setWebSearch] = useState(activeAgent.tools.webSearch);
+  const [instructionsOverride, setInstructionsOverride] = useState("");
   const [replySendingIds, setReplySendingIds] = useState<Record<string, boolean>>({});
   const [activeInquiryNodeIds, setActiveInquiryNodeIds] = useState<Record<string, string | undefined>>({});
   const [windowPositions, setWindowPositions] = useState<Record<string, { x: number; y: number }>>({});
@@ -71,6 +76,12 @@ export function ChatPanel() {
   const endRef = useRef<HTMLDivElement>(null);
   const timeline = getTimeline(snapshot, snapshot.currentTimelineId);
   const nodes = useMemo(() => getTimelineNodes(snapshot, timeline.id).filter((node) => !isFocusedInquiry(node)), [snapshot, timeline.id]);
+
+  useEffect(() => {
+    setReasoningEffort(activeAgent.reasoningEffort ?? "default");
+    setWebSearch(activeAgent.tools.webSearch);
+    setInstructionsOverride("");
+  }, [activeAgent.id]);
 
   useEffect(() => {
     if (!selectedNodeId) return;
@@ -85,7 +96,11 @@ export function ChatPanel() {
     setDraft("");
     setSending(true);
     try {
-      await sendMessage(content);
+      await sendMessage(content, {
+        reasoningEffort,
+        webSearch,
+        instructions: instructionsOverride.trim() || undefined,
+      });
       endRef.current?.scrollIntoView({ behavior: "smooth" });
     } finally {
       setSending(false);
@@ -285,6 +300,24 @@ export function ChatPanel() {
       })}
 
       <form className="composer" onSubmit={submit}>
+        {composerOptionsOpen && (
+          <div className="composer-options" role="dialog" aria-label="本次消息设置">
+            <div className="composer-options-heading"><strong>本次消息设置</strong><span>沿用 Agent 默认值，可临时覆盖</span></div>
+            <div className="composer-option-group">
+              <div className="composer-option-label"><Brain size={14} /><span><strong>思考强度</strong><small>关闭或控制模型推理预算</small></span></div>
+              <div className="segmented-control composer-segmented-control">
+                {([
+                  ["default", "默认"], ["none", "关闭"], ["low", "低"], ["medium", "中"], ["high", "高"],
+                ] as const).map(([value, label]) => <button type="button" key={value} className={reasoningEffort === value ? "active" : ""} onClick={() => setReasoningEffort(value)}>{label}</button>)}
+              </div>
+            </div>
+            <div className="composer-option-row">
+              <div className="composer-option-label"><Globe2 size={14} /><span><strong>联网搜索</strong><small>将联网意图交给当前 Provider</small></span></div>
+              <button type="button" className={`composer-toggle ${webSearch ? "on" : ""}`} onClick={() => setWebSearch((value) => !value)} aria-pressed={webSearch}><span />{webSearch ? "已开启" : "已关闭"}</button>
+            </div>
+            <label className="composer-prompt-field"><span><strong>本次提示词</strong><small>覆盖 Agent 的系统提示词，留空则使用默认提示词</small></span><textarea value={instructionsOverride} onChange={(event) => setInstructionsOverride(event.target.value)} rows={3} placeholder={activeAgent.instructions || "例如：用表格比较方案，并标注不确定性"} /></label>
+          </div>
+        )}
         <div className="composer-context"><span><i style={{ backgroundColor: activeAgent.color }} />{activeAgent.name}<b>{activeAgent.modelId || "未选择模型"}</b></span><button type="button" title="上下文模式"><ShieldAlert size={14} />{timeline.name} · {timeline.contextMode === "until-node" ? "继承至分支点" : timeline.contextMode === "all" ? "继承全部" : "仅引用节点"}</button></div>
         <textarea
           value={draft}
@@ -298,7 +331,8 @@ export function ChatPanel() {
         />
         <div className="composer-footer">
           <button type="button" className="attach-button" title="附件将在下一阶段开放"><Paperclip size={18} /></button>
-          <span>{timeline.name} · {workspaceMode === "remote" ? "云端 SSE 模式" : runtimeTarget === "desktop" ? "桌面本地 ModelGateway" : "模型服务未连接"}</span>
+          <span className="composer-status">{timeline.name} · {workspaceMode === "remote" ? "云端 SSE 模式" : runtimeTarget === "desktop" ? "桌面本地 ModelGateway" : "模型服务未连接"}<em className={reasoningEffort === "none" ? "off" : ""}><Brain size={11} />{reasoningEffort === "default" ? "思考默认" : reasoningEffort === "none" ? "思考关闭" : `思考${reasoningEffort === "low" ? "低" : reasoningEffort === "medium" ? "中" : "高"}`}</em>{webSearch && <em><Globe2 size={11} />联网</em>}</span>
+          <button type="button" className={`composer-options-trigger ${composerOptionsOpen ? "active" : ""}`} title="消息设置" aria-label="消息设置" aria-expanded={composerOptionsOpen} onClick={() => setComposerOptionsOpen((value) => !value)}><Settings2 size={16} /></button>
           <button className="send-button" disabled={!draft.trim() || sending} title="发送消息"><ArrowUp size={18} /></button>
         </div>
       </form>
