@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Inject, Param, Post, Sse } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Inject, Param, Patch, Post, Sse } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { Observable } from "rxjs";
 import { z } from "zod";
@@ -28,6 +28,7 @@ const forkSchema = z.object({
 });
 const compareSchema = z.object({ timelineIds: z.array(z.string().min(1)).min(2).max(8) });
 const mergeSchema = z.object({ sourceIds: z.array(z.string().min(1)).min(1).max(8) });
+const messageSchema = z.object({ content: z.string().trim().min(1).max(200_000) });
 
 @ApiTags("timelines")
 @Controller()
@@ -68,6 +69,28 @@ export class TimelinesController {
     @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey: string,
   ) {
     return this.store.forkFromMessage(messageId, body, idempotencyKey);
+  }
+
+  @Patch("messages/:messageId")
+  @ApiIdempotencyKey()
+  @ApiOperation({ summary: "编辑消息内容" })
+  updateMessage(
+    @Param("messageId") messageId: string,
+    @Body(new ZodValidationPipe(messageSchema)) body: z.infer<typeof messageSchema>,
+    @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey: string,
+  ) {
+    return this.store.updateMessage(messageId, body.content, idempotencyKey);
+  }
+
+  @Delete("messages/:messageId")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiIdempotencyKey()
+  @ApiOperation({ summary: "删除消息及其后续子消息" })
+  deleteMessage(
+    @Param("messageId") messageId: string,
+    @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey: string,
+  ) {
+    return this.store.deleteMessage(messageId, idempotencyKey);
   }
 
   @Post("timeline-comparisons")

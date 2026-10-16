@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Inject, Param, Patch, Post } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { z } from "zod";
 import { WorkspaceStore } from "../../infrastructure/workspace.store.js";
@@ -29,6 +29,28 @@ export class ConversationsController {
     @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey: string,
   ) {
     return this.store.createConversation(body.title, idempotencyKey);
+  }
+
+  @Patch(":conversationId")
+  @ApiIdempotencyKey()
+  @ApiOperation({ summary: "重命名对话" })
+  rename(
+    @Param("conversationId") conversationId: string,
+    @Body(new ZodValidationPipe(createConversationSchema)) body: z.infer<typeof createConversationSchema>,
+    @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey: string,
+  ) {
+    return this.store.renameConversation(conversationId, body.title, idempotencyKey);
+  }
+
+  @Delete(":conversationId")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiIdempotencyKey()
+  @ApiOperation({ summary: "删除对话及其所有时间线内容" })
+  remove(
+    @Param("conversationId") conversationId: string,
+    @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey: string,
+  ) {
+    return this.store.deleteConversation(conversationId, idempotencyKey);
   }
 
   @Get(":conversationId/graph")

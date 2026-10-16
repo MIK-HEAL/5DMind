@@ -93,6 +93,84 @@ export class WorkspaceStore {
     });
   }
 
+  renameConversation(conversationId: string, title: string, idempotencyKey?: string): Conversation {
+    return this.idempotent("PATCH /conversations", idempotencyKey, { conversationId, title }, () => {
+      const conversation = this.getConversation(conversationId);
+      const updated = { ...conversation, title, updatedAt: new Date().toISOString() };
+      this.conversations.set(conversationId, updated);
+      this.bump();
+      return updated;
+    });
+  }
+
+  deleteConversation(conversationId: string, idempotencyKey?: string): void {
+    this.idempotent("DELETE /conversations", idempotencyKey, { conversationId }, () => {
+      this.getConversation(conversationId);
+      if (this.conversations.size <= 1) {
+        throw new ConflictException({ error: { code: "LAST_CONVERSATION", message: "至少需要保留一个对话" } });
+      }
+      const timelineIds = new Set([...this.timelines.values()]
+        .filter((timeline) => timeline.conversationId === conversationId)
+        .map((timeline) => timeline.id));
+      const nodeIds = new Set([...this.nodes.values()]
+        .filter((node) => timelineIds.has(node.timelineId))
+        .map((node) => node.id));
+      for (const [id, timeline] of this.timelines) if (timelineIds.has(id)) this.timelines.delete(id);
+      for (const [id, node] of this.nodes) if (nodeIds.has(id)) this.nodes.delete(id);
+      for (const [id, threat] of this.threats) if (threat.conversationId === conversationId) this.threats.delete(id);
+      for (const [id, reference] of this.references) {
+        if (nodeIds.has(reference.sourceNodeId) || nodeIds.has(reference.targetNodeId)) this.references.delete(id);
+      }
+      for (const [id, turn] of this.turns) if (timelineIds.has(turn.timelineId)) this.turns.delete(id);
+      this.conversations.delete(conversationId);
+      this.bump();
+    });
+  }
+
+  updateMessage(messageId: string, content: string, idempotencyKey?: string): ConversationNode {
+    return this.idempotent("PATCH /messages", idempotencyKey, { messageId, content }, () => {
+      const node = this.getNode(messageId);
+      if (node.kind !== "user" && node.kind !== "assistant") {
+        throw new UnprocessableEntityException({ error: { code: "MESSAGE_NOT_EDITABLE", message: "该消息类型不支持编辑" } });
+      }
+      if (node.status === "streaming") {
+        throw new ConflictException({ error: { code: "MESSAGE_STREAMING", message: "消息生成中，暂不能编辑" } });
+      }
+      const clean = content.trim();
+      if (!clean) throw new UnprocessableEntityException({ error: { code: "MESSAGE_EMPTY", message: "消息内容不能为空" } });
+      const updated = { ...node, content: clean, summary: this.summary(clean) };
+      this.nodes.set(messageId, updated);
+      this.bump();
+      return updated;
+    });
+  }
+
+  deleteMessage(messageId: string, idempotencyKey?: string): void {
+    this.idempotent("DELETE /messages", idempotencyKey, { messageId }, () => {
+      const root = this.getNode(messageId);
+      const nodeIds = new Set([root.id]);
+      let expanded = true;
+      while (expanded) {
+        expanded = false;
+        for (const node of this.nodes.values()) {
+          if (node.timelineId === root.timelineId && node.parentNodeId && nodeIds.has(node.parentNodeId) && !nodeIds.has(node.id)) {
+            nodeIds.add(node.id);
+            expanded = true;
+          }
+        }
+      }
+      for (const id of nodeIds) this.nodes.delete(id);
+      for (const [id, threat] of this.threats) if (nodeIds.has(threat.nodeId)) this.threats.delete(id);
+      for (const [id, reference] of this.references) {
+        if (nodeIds.has(reference.sourceNodeId) || nodeIds.has(reference.targetNodeId)) this.references.delete(id);
+      }
+      for (const [id, turn] of this.turns) {
+        if (nodeIds.has(turn.userMessage.id) || nodeIds.has(turn.assistantMessage.id)) this.turns.delete(id);
+      }
+      this.bump();
+    });
+  }
+
   getGraph(conversationId: string): GraphSnapshot {
     const conversation = this.getConversation(conversationId);
     const timelines = [...this.timelines.values()].filter((timeline) => timeline.conversationId === conversation.id);

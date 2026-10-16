@@ -1,6 +1,6 @@
 [package]
 name = "five-d-mind"
-version = "0.1.0"
+version = "0.1.1"
 description = "A timeline-first conversation workspace"
 authors = ["5DMind contributors"]
 edition = "2024"

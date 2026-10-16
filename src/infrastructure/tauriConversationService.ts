@@ -123,6 +123,28 @@ export class TauriConversationService implements ConversationService {
     };
   }
 
+  async renameConversation(conversationId: string, title: string): Promise<Conversation> {
+    const conversation = this.getSnapshot().conversations.find((item) => item.id === conversationId);
+    if (!conversation) throw new Error("对话不存在");
+    return { ...conversation, title: title.trim(), updatedAt: new Date().toISOString() };
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    if (!this.getSnapshot().conversations.some((item) => item.id === conversationId)) throw new Error("对话不存在");
+  }
+
+  async updateMessage(messageId: string, content: string): Promise<ConversationNode> {
+    const node = this.getSnapshot().nodes.find((item) => item.id === messageId);
+    if (!node) throw new Error("消息不存在");
+    const clean = content.trim();
+    if (!clean) throw new Error("消息内容不能为空");
+    return { ...node, content: clean, summary: clean.replace(/\s+/g, " ").slice(0, 44) };
+  }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    if (!this.getSnapshot().nodes.some((item) => item.id === messageId)) throw new Error("消息不存在");
+  }
+
   async *sendMessage(input: SendMessageInput): AsyncIterable<MessageEvent> {
     if (input.signal?.aborted) throw new DOMException("消息请求已取消", "AbortError");
     const history = conversationHistory(this.getSnapshot(), input);

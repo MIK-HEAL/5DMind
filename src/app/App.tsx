@@ -1,4 +1,4 @@
-import { Bot, Map, Maximize2, Minimize2, PanelRightClose, Search, Settings2 } from "lucide-react";
+import { Bot, Map, Maximize2, Minimize2, PanelLeftOpen, PanelRightClose, Search, Settings2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Select } from "../components/ui/Select";
 import { getTimeline } from "../domain/selectors";
@@ -22,6 +22,7 @@ export function App() {
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
   const [fullscreenBusy, setFullscreenBusy] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(() => fullscreenSupported());
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const timeline = getTimeline(snapshot, snapshot.currentTimelineId);
   const conversation = snapshot.conversations.find((item) => item.id === snapshot.currentConversationId);
   const currentTimelines = snapshot.timelines.filter(
@@ -83,9 +84,17 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <WorkspaceSidebar />
+      <WorkspaceSidebar mobileOpen={mobileSidebarOpen} onMobileOpenChange={setMobileSidebarOpen} />
       <main className="main-shell">
         <header className="topbar">
+          <button
+            type="button"
+            className="mobile-workspace-trigger"
+            title="切换工作区"
+            aria-label="打开工作区导航"
+            aria-expanded={mobileSidebarOpen}
+            onClick={() => setMobileSidebarOpen((open) => !open)}
+          ><PanelLeftOpen size={18} /></button>
           <div className="topbar-title">
             <strong>{conversation?.title ?? "未命名对话"}</strong>
             <Select

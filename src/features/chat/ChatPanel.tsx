@@ -48,13 +48,16 @@ export function ChatPanel() {
   const {
     snapshot, selectedNodeId, selectNode, mapOpen, setMapOpen, sendMessage, forkFromNode,
     createThreat, createReference, createFocusedInquiry, focusedInquiryId, focusedInquiryIds,
-    focusInquiry, openInquiry, closeInquiry,
+    focusInquiry, openInquiry, closeInquiry, updateMessage, deleteMessage,
   } = useWorkspace();
   const { activeAgent, preferences } = useSettings();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [forkNodeId, setForkNodeId] = useState<string>();
   const [threatNodeId, setThreatNodeId] = useState<string>();
+  const [deleteNodeId, setDeleteNodeId] = useState<string>();
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [messageActionError, setMessageActionError] = useState<string>();
   const [branchName, setBranchName] = useState("");
   const [contextMode, setContextMode] = useState<ContextMode>("until-node");
   const [threatTitle, setThreatTitle] = useState("");
@@ -218,6 +221,8 @@ export function ChatPanel() {
             onFork={() => { setForkNodeId(node.id); setBranchName(`分支 · ${node.summary}`); }}
             onThreat={() => { setThreatNodeId(node.id); setThreatTitle(`风险 · ${node.summary}`); }}
             onReference={() => createReference(node.id)}
+            onEdit={updateMessage}
+            onDelete={() => setDeleteNodeId(node.id)}
             onSelectText={(event) => selectMessageText(node.id, node.kind, event)}
             onOpenInquiry={(nodeId) => { openInquiry(nodeId); selectNode(nodeId); }}
           />
@@ -312,7 +317,7 @@ export function ChatPanel() {
               </div>
             </div>
             <div className="composer-option-row">
-              <div className="composer-option-label"><Globe2 size={14} /><span><strong>联网搜索</strong><small>将联网意图交给当前 Provider</small></span></div>
+              <div className="composer-option-label"><Globe2 size={14} /><span><strong>联网搜索</strong><small>由桌面网关检索网页并注入当前请求</small></span></div>
               <button type="button" className={`composer-toggle ${webSearch ? "on" : ""}`} onClick={() => setWebSearch((value) => !value)} aria-pressed={webSearch}><span />{webSearch ? "已开启" : "已关闭"}</button>
             </div>
             <label className="composer-prompt-field"><span><strong>本次提示词</strong><small>覆盖 Agent 的系统提示词，留空则使用默认提示词</small></span><textarea value={instructionsOverride} onChange={(event) => setInstructionsOverride(event.target.value)} rows={3} placeholder={activeAgent.instructions || "例如：用表格比较方案，并标注不确定性"} /></label>
@@ -367,6 +372,31 @@ export function ChatPanel() {
           <footer><button className="secondary" onClick={() => setThreatNodeId(undefined)}>取消</button><button className="danger" disabled={!threatTitle.trim()} onClick={() => { createThreat(threatNodeId, threatTitle, threatDetail, severity); setThreatNodeId(undefined); }}>创建风险</button></footer>
         </Modal>
       )}
+
+      {deleteNodeId && (() => {
+        const target = snapshot.nodes.find((node) => node.id === deleteNodeId);
+        if (!target) return null;
+        return (
+          <Modal title="删除消息" onClose={() => setDeleteNodeId(undefined)}>
+            <div className="modal-content">
+              <p className="modal-warning">确定删除这条消息吗？它后面的子消息和关联的选区追问也会一并删除。</p>
+              <div className="delete-message-preview">{target.summary || target.content.slice(0, 120)}</div>
+            </div>
+            <footer><button className="secondary" disabled={deleteSaving} onClick={() => setDeleteNodeId(undefined)}>取消</button><button className="danger" disabled={deleteSaving} onClick={async () => {
+              setDeleteSaving(true);
+              try {
+                await deleteMessage(deleteNodeId);
+                setDeleteNodeId(undefined);
+              } catch (error) {
+                setMessageActionError(error instanceof Error && error.message ? error.message : "删除失败，请重试");
+              } finally {
+                setDeleteSaving(false);
+              }
+            }}>{deleteSaving ? "删除中" : "删除消息"}</button></footer>
+          </Modal>
+        );
+      })()}
+      {messageActionError && <div className="sidebar-action-notice" role="status"><span>{messageActionError}</span><button type="button" title="关闭提示" aria-label="关闭提示" onClick={() => setMessageActionError(undefined)}>×</button></div>}
     </section>
   );
 }

@@ -10,6 +10,7 @@ import {
   Languages,
   Plus,
   RotateCcw,
+  RefreshCw,
   Settings2,
   SlidersHorizontal,
   Sparkles,
@@ -28,6 +29,7 @@ import type {
 } from "../../domain/settings";
 import { runtimeTarget } from "../../infrastructure/runtime";
 import { sanitizeProviderUrl } from "../../infrastructure/settingsRepository";
+import { appVersion, checkForUpdates, type UpdateCheckResult } from "../../infrastructure/updateChecker";
 import { useSettings } from "../../state/SettingsProvider";
 import { useWorkspace } from "../../state/WorkspaceProvider";
 
@@ -82,6 +84,23 @@ function SettingsRow({ title, detail, children }: { title: string; detail?: stri
 
 function GeneralSettings() {
   const { preferences, updatePreferences } = useSettings();
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult>();
+  const [updateError, setUpdateError] = useState<string>();
+
+  const checkUpdates = async () => {
+    setUpdateBusy(true);
+    setUpdateError(undefined);
+    try {
+      setUpdateResult(await checkForUpdates());
+    } catch (error) {
+      setUpdateResult(undefined);
+      setUpdateError(error instanceof Error ? error.message : "检查更新失败，请稍后重试");
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
   return (
     <div className="settings-page">
       <header className="settings-page-header"><span>偏好设置</span><h2>通用</h2><p>调整工作区、输入方式和对话阅读体验。</p></header>
@@ -114,6 +133,26 @@ function GeneralSettings() {
         <SettingsRow title="显示时间" detail="在消息作者旁显示发送时间">
           <Toggle checked={preferences.showTimestamps} onChange={(showTimestamps) => updatePreferences({ showTimestamps })} label="显示消息时间" />
         </SettingsRow>
+      </section>
+      <section className="settings-group">
+        <h3>关于</h3>
+        <SettingsRow title="检查更新" detail={`当前版本 v${appVersion} · 从 GitHub Release 获取最新版本`}>
+          <div className="update-actions">
+            <button type="button" className="settings-action-button" disabled={updateBusy} onClick={() => void checkUpdates()}>
+              <RefreshCw size={14} className={updateBusy ? "spin" : undefined} />
+              {updateBusy ? "检查中…" : "检查更新"}
+            </button>
+            {updateResult?.status === "available" && updateResult.releaseUrl && (
+              <a className="settings-action-button primary-action" href={updateResult.releaseUrl} target="_blank" rel="noreferrer">
+                <Download size={14} />下载 v{updateResult.latestVersion}
+              </a>
+            )}
+          </div>
+        </SettingsRow>
+        {updateResult?.status === "available" && <p className="update-result ok">发现新版本 v{updateResult.latestVersion}{updateResult.releaseName ? `：${updateResult.releaseName}` : ""}</p>}
+        {updateResult?.status === "up-to-date" && <p className="update-result ok">当前已是最新版本（v{updateResult.currentVersion}）</p>}
+        {updateResult?.status === "no-release" && <p className="update-result">暂未发布可用版本</p>}
+        {updateError && <p className="update-result error">{updateError}</p>}
       </section>
     </div>
   );
@@ -381,7 +420,7 @@ export function SettingsDialog() {
         <aside className="settings-navigation">
           <div className="settings-brand"><div className="brand-mark">5D</div><div><strong>设置</strong><span>5DMind Desktop</span></div></div>
           <nav>{sections.map(({ id, label, icon: Icon }) => <button type="button" key={id} className={settingsSection === id ? "active" : ""} title={label} aria-label={label} onClick={() => setSettingsSection(id)}><Icon size={17} /><span>{label}</span><ChevronRight size={14} /></button>)}</nav>
-          <div className="settings-version"><SlidersHorizontal size={14} /><span>Prototype 0.1.0</span></div>
+          <div className="settings-version"><SlidersHorizontal size={14} /><span>Prototype v{appVersion}</span></div>
         </aside>
         <div className="settings-main"><button type="button" className="settings-close" title="关闭设置" onClick={closeSettings}><X size={19} /></button>{page}</div>
       </section>

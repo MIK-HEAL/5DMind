@@ -40,6 +40,10 @@ export interface SendMessageInput {
 
 export interface ConversationService {
   createConversation(title: string): Promise<Conversation>;
+  renameConversation(conversationId: string, title: string): Promise<Conversation>;
+  deleteConversation(conversationId: string): Promise<void>;
+  updateMessage(messageId: string, content: string): Promise<ConversationNode>;
+  deleteMessage(messageId: string): Promise<void>;
   sendMessage(input: SendMessageInput): AsyncIterable<MessageEvent>;
   getContext(timelineId: string): Promise<ContextSnapshot>;
 }
