@@ -17,6 +17,7 @@ import type {
   WorkspaceSnapshot,
 } from "../domain/types";
 import type { ConversationService } from "../domain/services";
+import type { ReasoningEffort } from "../domain/settings";
 import { getInquiryTree, getLastNode, getNode, getOwnNodes, getTimelineNodes } from "../domain/selectors";
 import { workspaceRepository } from "../infrastructure/workspaceRepository";
 import { tauriWorkspaceRepository } from "../infrastructure/tauriWorkspaceRepository";
@@ -48,7 +49,7 @@ interface WorkspaceContextValue {
   setMapOpen: (open: boolean) => void;
   setMapPinned: (pinned: boolean) => void;
   toggleCompare: (timelineId: string) => void;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string }) => Promise<void>;
   createFocusedInquiry: (sourceNodeId: string, selection: FocusSelection, question: string, parentNodeId?: string, openWindow?: boolean) => Promise<string>;
   forkFromNode: (nodeId: string, name: string, contextMode: ContextMode) => Promise<string>;
   createThreat: (nodeId: string, title: string, detail: string, severity: Threat["severity"]) => Promise<void>;
@@ -206,7 +207,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string }) => {
     const clean = content.trim();
     if (!clean) return;
     const timelineId = snapshotRef.current.currentTimelineId;
@@ -233,8 +234,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         baseUrl: activeProvider?.baseUrl,
         apiPath: activeProvider?.apiPath,
         requestTimeoutMs: activeProvider?.requestTimeoutMs,
-        instructions: activeAgent.instructions,
+        instructions: options?.instructions?.trim() || activeAgent.instructions,
         temperature: activeAgent.temperature,
+        reasoningEffort: options?.reasoningEffort ?? activeAgent.reasoningEffort ?? "default",
+        webSearch: options?.webSearch ?? activeAgent.tools.webSearch,
       })) {
         if (event.type === "message.started") {
           setSnapshot((current) => ({

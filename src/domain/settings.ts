@@ -1,6 +1,7 @@
 export type SettingsSection = "general" | "providers" | "agents" | "data";
 export type ProviderType = "local" | "openai" | "anthropic" | "gemini" | "ollama" | "openai-compatible";
 export type AgentPermissionMode = "ask" | "auto" | "read-only";
+export type ReasoningEffort = "default" | "none" | "low" | "medium" | "high";
 
 export interface ModelProvider {
   id: string;
@@ -24,6 +25,7 @@ export interface AgentProfile {
   providerId: string;
   modelId: string;
   temperature: number;
+  reasoningEffort?: ReasoningEffort;
   permissionMode: AgentPermissionMode;
   tools: {
     webSearch: boolean;

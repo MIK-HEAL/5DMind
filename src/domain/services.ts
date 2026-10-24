@@ -9,6 +9,7 @@ import type {
   ConversationNode,
   ReferenceLink,
 } from "./types";
+import type { ReasoningEffort } from "./settings";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -29,6 +30,8 @@ export interface SendMessageInput {
   requestTimeoutMs?: number;
   instructions?: string;
   temperature?: number;
+  reasoningEffort?: ReasoningEffort;
+  webSearch?: boolean;
   relation?: ConversationNode["relation"];
   focusSelection?: ConversationNode["focusSelection"];
   history?: ConversationTurn[];

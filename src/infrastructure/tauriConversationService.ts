@@ -144,6 +144,8 @@ export class TauriConversationService implements ConversationService {
         requestTimeoutMs: input.requestTimeoutMs,
         instructions: input.instructions,
         temperature: input.temperature,
+        reasoningEffort: input.reasoningEffort,
+        webSearch: input.webSearch,
         history,
       },
       onEvent: channel,
