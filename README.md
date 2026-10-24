@@ -52,6 +52,22 @@ npm run dev:desktop
 npm run build:desktop
 ```
 
+Android 版本需要先安装 Android Studio、Android SDK、NDK 和 Java 21，并初始化 Tauri Android 目标：
+
+```bash
+npx tauri android init
+npm run dev:android
+npm run build:android
+```
+
+`build:android` 默认生成 arm64 APK 和 AAB。iOS 构建需要 macOS、Xcode 和 Apple 签名环境：
+
+```bash
+npx tauri ios init
+npm run dev:ios
+npm run build:ios
+```
+
 Windows 构建目标已配置为 NSIS 安装包与 MSI。桌面 MVP 使用 Tauri + SQLite 和系统凭据库，浏览器 Web 模式继续使用 IndexedDB；两者通过同一套领域服务接口复用 React 组件。当前 Release 验证已生成 NSIS 安装包；MSI 生成依赖本机 WiX `light.exe` 工具链。
 
 ## 核心术语
