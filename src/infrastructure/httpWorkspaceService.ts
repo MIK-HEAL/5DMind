@@ -137,11 +137,13 @@ export class HttpWorkspaceService implements ConversationService, TimelineServic
       body: {
         content: input.content,
         clientMessageId: input.clientMessageId,
+        replaceMessageId: input.replaceMessageId,
         parentNodeId: input.parentNodeId,
         inquiryRootId: input.inquiryRootId,
         model: input.model,
         relation: input.relation,
         focusSelection: input.focusSelection,
+        attachments: input.attachments,
       },
       idempotent: true,
       signal: input.signal,

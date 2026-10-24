@@ -15,6 +15,7 @@ import type {
   Timeline,
   TurnEvent,
   TurnRecord,
+  MessageAttachment,
 } from "./store.types.js";
 
 const colors = ["#206b5a", "#ce6d39", "#4b67b0", "#7a5ba6"];
@@ -36,11 +37,13 @@ function contentHash(value: string): string {
 type TurnInput = {
   content: string;
   clientMessageId: string;
+  replaceMessageId?: string;
   parentNodeId?: string;
   inquiryRootId?: string;
   model?: string;
   relation?: NodeRelation;
   focusSelection?: FocusSelection;
+  attachments?: MessageAttachment[];
 };
 
 interface InquiryResolution {
@@ -234,12 +237,24 @@ export class WorkspaceStore {
       if (relation === "focused-inquiry" && (!parentNodeId || !normalizedSelection || !normalizedRootId)) {
         throw this.inquiryError("INQUIRY_PARENT_INVALID", "追问缺少有效的同树父节点");
       }
+      const replacement = input.replaceMessageId ? this.nodes.get(input.replaceMessageId) : undefined;
+      if (input.replaceMessageId && (!replacement || replacement.timelineId !== timelineId || replacement.kind !== "user")) {
+        throw new UnprocessableEntityException({ error: { code: "MESSAGE_REPLACEMENT_INVALID", message: "待替换消息不属于当前时间线或不是用户消息" } });
+      }
+      const previousTurn = replacement
+        ? [...this.turns.values()].find((turn) => turn.userMessage.id === replacement.id)
+        : undefined;
+      const effectiveAttachments = input.attachments ?? previousTurn?.context.attachments;
       const userMessage: ConversationNode = {
-        id: input.clientMessageId, timelineId, parentNodeId, kind: "user", content: input.content,
+        id: replacement?.id ?? input.clientMessageId, timelineId, parentNodeId, kind: "user", content: input.content,
         summary: this.summary(input.content), relation,
         ...(normalizedRootId ? { inquiryRootId: normalizedRootId } : {}),
         ...(inquiry?.isRoot && normalizedSelection ? { focusSelection: normalizedSelection } : {}),
-        status: "complete", createdAt: now, metadata: { author: "你", tags: relation === "focused-inquiry" ? ["选区追问"] : undefined },
+        status: "complete", createdAt: now, metadata: {
+          author: "你",
+          tags: relation === "focused-inquiry" ? ["选区追问"] : undefined,
+          ...(effectiveAttachments?.length ? { attachments: effectiveAttachments.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size })) } : {}),
+        },
       };
       const assistantMessage: ConversationNode = {
         id: this.id("node"), timelineId, parentNodeId: userMessage.id, kind: "assistant", content: "",
@@ -254,8 +269,9 @@ export class WorkspaceStore {
         normalizedRootId,
         parentNodeId,
         input.content,
-        input.clientMessageId,
+        userMessage.id,
         normalizedSelection,
+        effectiveAttachments,
       );
       const turn: TurnRecord = {
         id: this.id("turn"), timelineId, userMessage, assistantMessage, responseText,
@@ -307,6 +323,25 @@ export class WorkspaceStore {
     const turn = this.turns.get(turnId);
     if (!turn) throw new NotFoundException({ error: { code: "TURN_NOT_FOUND", message: "生成任务不存在" } });
     return structuredClone(turn.context);
+  }
+
+  readTurnAttachment(turnId: string, attachmentId: string, offset = 0, limit = 12_000) {
+    const turn = this.turns.get(turnId);
+    if (!turn) throw new NotFoundException({ error: { code: "TURN_NOT_FOUND", message: "生成任务不存在" } });
+    const attachment = turn.context.attachments?.find((item) => item.id === attachmentId);
+    if (!attachment) throw new NotFoundException({ error: { code: "ATTACHMENT_NOT_FOUND", message: "附件不属于当前请求" } });
+    if (!attachment.textContent) {
+      return { id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, text: "该附件没有可读取的文本摘录。" };
+    }
+    const start = Math.max(0, Math.min(offset, attachment.textContent.length));
+    const text = attachment.textContent.slice(start, start + Math.max(1, Math.min(limit, 12_000)));
+    return {
+      id: attachment.id,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      text,
+      ...(start + text.length < attachment.textContent.length ? { nextOffset: start + text.length } : {}),
+    };
   }
 
   private resolveInquiry(timelineId: string, input: TurnInput): InquiryResolution {
@@ -417,6 +452,7 @@ export class WorkspaceStore {
     question: string,
     questionNodeId: string,
     selection: FocusSelection | undefined,
+    attachments: MessageAttachment[] | undefined,
   ): TurnContext {
     const messages: TurnContextMessage[] = this.primaryVisibleNodes(timelineId)
       .filter((node) => (node.kind === "user" || node.kind === "assistant") && node.status === "complete" && node.content.trim())
@@ -435,8 +471,12 @@ export class WorkspaceStore {
         }
       }
     }
-    messages.push({ role: "user", content: question, nodeId: questionNodeId });
-    return { timelineId, relation, inquiryRootId, parentNodeId, messages, ...(selection ? { focusSelection: selection } : {}) };
+    const attachmentPrompt = attachments?.length
+      ? `\n\n本轮附件（仅允许通过附件句柄读取）：\n${attachments.map((file) => `- ${file.name} [${file.mimeType}] (${file.size} bytes)`).join("\n")}`
+      : "";
+    messages.push({ role: "user", content: `${question}${attachmentPrompt}`, nodeId: questionNodeId });
+    const safeAttachments = attachments?.map(({ id, name, mimeType, size, textContent }) => ({ id, name, mimeType, size, textContent }));
+    return { timelineId, relation, inquiryRootId, parentNodeId, messages, ...(selection ? { focusSelection: selection } : {}), ...(safeAttachments?.length ? { attachments: safeAttachments } : {}) };
   }
 
   private turnFingerprint(
@@ -456,6 +496,7 @@ export class WorkspaceStore {
       inquiryRootId,
       parentNodeId,
       focusSelection: selection,
+      attachments: input.attachments?.map(({ id, name, mimeType, size, textContent }) => ({ id, name, mimeType, size, textContent })),
     })).digest("hex");
   }
 

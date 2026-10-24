@@ -33,6 +33,20 @@ describe("WorkspaceStore", () => {
     expect(assistant?.content).toContain("HTTP 503");
   });
 
+  it("keeps attachment reads scoped to the turn allow-list and supports paging", () => {
+    const store = new WorkspaceStore();
+    const conversation = store.createConversation("附件工具");
+    const timeline = store.getGraph(conversation.id).timelines[0];
+    if (!timeline) throw new Error("default timeline missing");
+    const turn = store.createTurn(timeline.id, {
+      content: "读取附件",
+      clientMessageId: "attachment-tool-turn",
+      attachments: [{ id: "file-1", name: "notes.md", mimeType: "text/markdown", size: 14, textContent: "abcdefghijklmn" }],
+    });
+    expect(store.readTurnAttachment(turn.turnId, "file-1", 2, 4).text).toBe("cdef");
+    expect(() => store.readTurnAttachment(turn.turnId, "other-file")).toThrow();
+  });
+
   it("forks from a visible node and preserves inherited context", () => {
     const store = new WorkspaceStore();
     const conversation = store.createConversation("分支测试");

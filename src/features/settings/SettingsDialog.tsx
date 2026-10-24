@@ -799,11 +799,11 @@ function AgentSettings() {
                 label="Web 搜索"
               />
             </SettingsRow>
-            <SettingsRow title="文件读取" detail="允许读取工作区文件">
+            <SettingsRow title="文件工具" detail="允许附加文件，并按本轮白名单读取文本">
               <Toggle
                 checked={selected.tools.files}
                 onChange={(files) => updateAgent(selected.id, { tools: { ...selected.tools, files } })}
-                label="文件读取"
+                label="文件工具"
               />
             </SettingsRow>
             <SettingsRow title="时间线工具" detail="允许创建分支、引用与风险">

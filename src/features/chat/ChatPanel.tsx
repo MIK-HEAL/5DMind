@@ -13,7 +13,17 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent } from "react";
 import { Select } from "../../components/ui/Select";
+import { invoke } from "@tauri-apps/api/core";
 import type { ContextMode, ConversationNode, FocusSelection, Threat } from "../../domain/types";
+import {
+  formatAttachmentSize,
+  isTextAttachment,
+  MAX_ATTACHMENT_COUNT,
+  MAX_ATTACHMENT_SIZE,
+  MAX_ATTACHMENT_TEXT,
+  MAX_ATTACHMENT_TOTAL_SIZE,
+  type MessageAttachment,
+} from "../../domain/attachments";
 import type { ReasoningEffort } from "../../domain/settings";
 import {
   getFocusedInquiryRoots,
@@ -54,6 +64,44 @@ function contentHash(value: string) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16);
+}
+
+const blockedAttachmentExtensions = /\.(exe|dll|dmg|app|sh|bat|cmd|ps1|com)$/i;
+
+async function readAttachment(file: File): Promise<MessageAttachment> {
+  const nativePath = (file as File & { path?: string }).path;
+  if (runtimeTarget === "desktop" && nativePath) {
+    const native = await invoke<{
+      name: string;
+      mimeType: string;
+      size: number;
+      textContent?: string;
+      dataUrl?: string;
+    }>("read_local_attachment", { path: nativePath });
+    return {
+      id: `${native.name}-${native.size}-${crypto.randomUUID()}`,
+      name: native.name,
+      mimeType: native.mimeType,
+      size: native.size,
+      ...(native.textContent !== undefined ? { textContent: native.textContent } : {}),
+      ...(native.dataUrl ? { dataUrl: native.dataUrl } : {}),
+    };
+  }
+  const textContent = isTextAttachment(file) ? (await file.text()).slice(0, MAX_ATTACHMENT_TEXT) : undefined;
+  const dataUrl = textContent === undefined ? await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("文件读取失败"));
+    reader.readAsDataURL(file);
+  }) : undefined;
+  return {
+    id: `${file.name}-${file.size}-${file.lastModified}`,
+    name: file.name,
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+    ...(textContent !== undefined ? { textContent } : {}),
+    ...(dataUrl ? { dataUrl } : {}),
+  };
 }
 
 function Modal({ title, children, onClose }: ModalProps) {
@@ -170,6 +218,8 @@ export function ChatPanel() {
     openInquiry,
     closeInquiry,
     updateMessage,
+    editAndResendMessage,
+    retryMessage,
     deleteMessage,
   } = useWorkspace();
   const { activeAgent, preferences } = useSettings();
@@ -191,6 +241,10 @@ export function ChatPanel() {
   const [inquirySending, setInquirySending] = useState(false);
   const [inquiryReplyDrafts, setInquiryReplyDrafts] = useState<Record<string, string>>({});
   const [composerOptionsOpen, setComposerOptionsOpen] = useState(false);
+  const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string>();
+  const [attachmentDragging, setAttachmentDragging] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(activeAgent.reasoningEffort ?? "default");
   const [webSearch, setWebSearch] = useState(activeAgent.tools.webSearch);
   const [instructionsOverride, setInstructionsOverride] = useState("");
@@ -230,10 +284,53 @@ export function ChatPanel() {
         reasoningEffort,
         webSearch,
         instructions: instructionsOverride.trim() || undefined,
+        attachments: activeAgent.tools.files ? attachments : undefined,
       });
+      setAttachments([]);
       endRef.current?.scrollIntoView({ behavior: "smooth" });
     } finally {
       setSending(false);
+    }
+  };
+
+  const addAttachments = async (files: FileList | File[]) => {
+    if (!activeAgent.tools.files) {
+      setAttachmentError("当前 Agent 未启用文件工具");
+      return;
+    }
+    const incoming = Array.from(files);
+    if (!incoming.length) return;
+    const availableSlots = MAX_ATTACHMENT_COUNT - attachments.length;
+    if (availableSlots <= 0) {
+      setAttachmentError(`最多同时附加 ${MAX_ATTACHMENT_COUNT} 个文件`);
+      return;
+    }
+    const accepted: File[] = [];
+    for (const file of incoming.slice(0, availableSlots)) {
+      if (blockedAttachmentExtensions.test(file.name)) {
+        setAttachmentError(`不支持上传可执行文件：${file.name}`);
+        continue;
+      }
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        setAttachmentError(`${file.name} 超过单文件 ${formatAttachmentSize(MAX_ATTACHMENT_SIZE)} 限制`);
+        continue;
+      }
+      accepted.push(file);
+    }
+    const nextTotal = attachments.reduce((sum, item) => sum + item.size, 0) + accepted.reduce((sum, file) => sum + file.size, 0);
+    if (nextTotal > MAX_ATTACHMENT_TOTAL_SIZE) {
+      setAttachmentError(`附件总大小不能超过 ${formatAttachmentSize(MAX_ATTACHMENT_TOTAL_SIZE)}`);
+      return;
+    }
+    try {
+      const loaded = await Promise.all(accepted.map(readAttachment));
+      setAttachments((current) => {
+        const seen = new Set(current.map((item) => item.id));
+        return [...current, ...loaded.filter((item) => !seen.has(item.id))];
+      });
+      setAttachmentError(undefined);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : "文件读取失败，请重试");
     }
   };
 
@@ -373,6 +470,8 @@ export function ChatPanel() {
               }}
               onReference={() => createReference(node.id)}
               onEdit={updateMessage}
+              onEditAndResend={editAndResendMessage}
+              onRetry={retryMessage}
               onDelete={() => setDeleteNodeId(node.id)}
               onSelectText={(event) => selectMessageText(node.id, node.kind, event)}
               onOpenInquiry={(nodeId) => {
@@ -545,7 +644,24 @@ export function ChatPanel() {
         );
       })}
 
-      <form className="composer" onSubmit={submit}>
+      <form
+        className={`composer ${attachmentDragging ? "is-dragging" : ""}`}
+        onSubmit={submit}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          if (activeAgent.tools.files) setAttachmentDragging(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => {
+          if (event.currentTarget === event.target) setAttachmentDragging(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setAttachmentDragging(false);
+          void addAttachments(event.dataTransfer.files);
+        }}
+      >
+        {attachmentDragging && <div className="composer-drop-overlay">松开以上传文件</div>}
         {composerOptionsOpen && (
           <div className="composer-options" role="dialog" aria-label="本次消息设置">
             <div className="composer-options-heading">
@@ -632,6 +748,12 @@ export function ChatPanel() {
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
+          onPaste={(event) => {
+            if (event.clipboardData.files.length) {
+              event.preventDefault();
+              void addAttachments(event.clipboardData.files);
+            }
+          }}
           onKeyDown={(event) => {
             const sendWithShortcut = event.key === "Enter" && (event.ctrlKey || event.metaKey);
             const sendWithPlainEnter = event.key === "Enter" && !event.shiftKey && preferences.sendWithEnter;
@@ -643,8 +765,51 @@ export function ChatPanel() {
           placeholder={`给 ${activeAgent.name} 发消息`}
           rows={3}
         />
+        {(attachments.length > 0 || attachmentError) && (
+          <div className="composer-attachments" aria-live="polite">
+            {attachments.map((attachment) => (
+              <div className="composer-attachment" key={attachment.id}>
+                {attachment.mimeType.startsWith("image/") && attachment.dataUrl ? (
+                  <img className="composer-attachment-preview" src={attachment.dataUrl} alt="" />
+                ) : (
+                  <span className="composer-attachment-icon"><Paperclip size={13} /></span>
+                )}
+                <span className="composer-attachment-copy">
+                  <strong title={attachment.name}>{attachment.name}</strong>
+                  <small>{formatAttachmentSize(attachment.size)} · {attachment.mimeType.split("/")[1] || "文件"}</small>
+                </span>
+                <button
+                  type="button"
+                  title={`移除 ${attachment.name}`}
+                  aria-label={`移除 ${attachment.name}`}
+                  onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+            {attachmentError && <span className="composer-attachment-error">{attachmentError}</span>}
+          </div>
+        )}
         <div className="composer-footer">
-          <button type="button" className="attach-button" title="附件将在下一阶段开放">
+          <input
+            ref={attachmentInputRef}
+            className="composer-file-input"
+            type="file"
+            multiple
+            onChange={(event) => {
+              void addAttachments(event.target.files ?? []);
+              event.currentTarget.value = "";
+            }}
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.md,.mdx,.txt,.csv,.json,.jsonl,.xml,.yaml,.yml,.log,.ts,.tsx,.js,.jsx,.css,.html,.sql,.png,.jpg,.jpeg,.gif,.webp,.svg,audio/*,video/*"
+          />
+          <button
+            type="button"
+            className={`attach-button ${!activeAgent.tools.files ? "is-disabled" : ""}`}
+            title={activeAgent.tools.files ? "添加附件" : "当前 Agent 未启用文件工具"}
+            aria-label={activeAgent.tools.files ? "添加附件" : "当前 Agent 未启用文件工具"}
+            onClick={() => activeAgent.tools.files && attachmentInputRef.current?.click()}
+          >
             <Paperclip size={18} />
           </button>
           <span className="composer-status">

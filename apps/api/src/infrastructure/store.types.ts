@@ -4,6 +4,22 @@ export type NodeStatus = "pending" | "streaming" | "complete" | "failed";
 export type NodeRelation = "main" | "branch" | "focused-inquiry";
 export type ThreatSeverity = "low" | "medium" | "high";
 
+export interface MessageAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  textContent?: string;
+  dataUrl?: string;
+}
+
+export interface AttachmentMetadata {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface FocusSelection {
   sourceNodeId: string;
   text: string;
@@ -53,6 +69,7 @@ export interface ConversationNode {
     boardName?: string;
     reasoning?: string;
     tags?: string[];
+    attachments?: AttachmentMetadata[];
   };
 }
 
@@ -123,4 +140,5 @@ export interface TurnContext {
   parentNodeId?: string;
   messages: TurnContextMessage[];
   focusSelection?: FocusSelection;
+  attachments?: MessageAttachment[];
 }

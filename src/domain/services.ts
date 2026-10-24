@@ -10,6 +10,7 @@ import type {
   ReferenceLink,
 } from "./types";
 import type { ReasoningEffort } from "./settings";
+import type { MessageAttachment } from "./attachments";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -20,6 +21,7 @@ export interface SendMessageInput {
   timelineId: string;
   content: string;
   clientMessageId: string;
+  replaceMessageId?: string;
   parentNodeId?: string;
   inquiryRootId?: string;
   model?: string;
@@ -32,6 +34,7 @@ export interface SendMessageInput {
   temperature?: number;
   reasoningEffort?: ReasoningEffort;
   webSearch?: boolean;
+  attachments?: MessageAttachment[];
   relation?: ConversationNode["relation"];
   focusSelection?: ConversationNode["focusSelection"];
   history?: ConversationTurn[];

@@ -2,7 +2,7 @@ use reqwest::{Client, Url};
 use serde_json::Value;
 use crate::credentials::provider_api_key;
 use crate::providers::{
-    CompleteMessageInput, append_path, provider_kind, provider_requires_api_key_for,
+    AttachmentInput, CompleteMessageInput, append_path, provider_kind, provider_requires_api_key_for,
     redact_sensitive_text, timeout_duration, truncate_error,
 };
 use crate::search::web_search_context;
@@ -119,14 +119,90 @@ pub(crate) fn history_turns(input: &CompleteMessageInput) -> Vec<(&str, &str)> {
 
 pub(crate) fn user_message(input: &CompleteMessageInput) -> String {
     let content = input.content.trim();
-    let Some(selection) = input.focus_selection.as_ref() else {
-        return content.to_string();
-    };
-    format!(
+    let selected = if let Some(selection) = input.focus_selection.as_ref() {
+        format!(
         "请围绕以下消息选区回答追问：\n\n> {}\n\n{}",
         selection.text.replace('\n', "\n> "),
         content,
-    )
+        )
+    } else {
+        content.to_string()
+    };
+    if input.attachments.is_empty() {
+        return selected;
+    }
+    let attachment_context = input.attachments.iter().map(|file| {
+        if let Some(text) = file.text_content.as_deref() {
+            format!("- {} [{}]:\n{}", file.name, file.mime_type, text)
+        } else if file.mime_type.starts_with("image/") && file.data_url.is_some() {
+            format!("- {} [{}]（图片已作为视觉内容附加）", file.name, file.mime_type)
+        } else {
+            format!("- {} [{}] ({} bytes; 可用附件句柄读取)", file.name, file.mime_type, file.size)
+        }
+    }).collect::<Vec<_>>().join("\n");
+    format!("{selected}\n\n本轮附件（仅使用用户明确附加的文件）：\n{attachment_context}")
+}
+
+fn base64_payload(data_url: &str) -> Option<&str> {
+    data_url.split_once(";base64,").map(|(_, payload)| payload)
+}
+
+fn image_attachments(input: &CompleteMessageInput) -> impl Iterator<Item = &AttachmentInput> {
+    input.attachments.iter().filter(|file| {
+        file.mime_type.starts_with("image/") && file.data_url.as_deref().and_then(base64_payload).is_some()
+    })
+}
+
+fn openai_user_content(input: &CompleteMessageInput) -> Value {
+    let mut content = vec![serde_json::json!({ "type": "text", "text": user_message(input) })];
+    for file in image_attachments(input) {
+        if let Some(url) = file.data_url.as_deref() {
+            content.push(serde_json::json!({
+                "type": "image_url",
+                "image_url": { "url": url },
+            }));
+        }
+    }
+    if content.len() == 1 { Value::String(user_message(input)) } else { Value::Array(content) }
+}
+
+fn anthropic_user_content(input: &CompleteMessageInput) -> Value {
+    let mut content = vec![serde_json::json!({ "type": "text", "text": user_message(input) })];
+    for file in image_attachments(input) {
+        if let Some(data_url) = file.data_url.as_deref() {
+            if let Some(data) = base64_payload(data_url) {
+                content.push(serde_json::json!({
+                    "type": "image",
+                    "source": { "type": "base64", "media_type": file.mime_type, "data": data },
+                }));
+            }
+        }
+    }
+    if content.len() == 1 { Value::String(user_message(input)) } else { Value::Array(content) }
+}
+
+fn gemini_user_parts(input: &CompleteMessageInput) -> Vec<Value> {
+    let mut parts = vec![serde_json::json!({ "text": user_message(input) })];
+    for file in image_attachments(input) {
+        if let Some(data_url) = file.data_url.as_deref() {
+            if let Some(data) = base64_payload(data_url) {
+                parts.push(serde_json::json!({
+                    "inline_data": { "mime_type": file.mime_type, "data": data },
+                }));
+            }
+        }
+    }
+    parts
+}
+
+fn ollama_user_message(input: &CompleteMessageInput) -> Value {
+    let mut message = serde_json::json!({ "role": "user", "content": user_message(input) });
+    let images = image_attachments(input)
+        .filter_map(|file| file.data_url.as_deref().and_then(base64_payload))
+        .map(Value::from)
+        .collect::<Vec<_>>();
+    if !images.is_empty() { message["images"] = Value::Array(images); }
+    message
 }
 
 pub(crate) fn prompt_with_web_context(prompt: &str, web_context: &str) -> String {
@@ -143,7 +219,6 @@ pub(crate) fn remote_body(
     web_context: &str,
 ) -> Value {
     let prompt = prompt_with_web_context(input.instructions.as_deref().unwrap_or_default(), web_context);
-    let user_message = user_message(input);
     let temperature = input.temperature.unwrap_or(0.7).clamp(0.0, 2.0);
     let mut body = match provider_type {
         "anthropic" => serde_json::json!({
@@ -152,7 +227,7 @@ pub(crate) fn remote_body(
             "system": prompt,
             "messages": history_turns(input).into_iter()
                 .map(|(role, content)| serde_json::json!({ "role": role, "content": content }))
-                .chain(std::iter::once(serde_json::json!({ "role": "user", "content": user_message })))
+                .chain(std::iter::once(serde_json::json!({ "role": "user", "content": anthropic_user_content(input) })))
                 .collect::<Vec<_>>(),
             "temperature": temperature,
             "stream": stream,
@@ -161,7 +236,7 @@ pub(crate) fn remote_body(
             "systemInstruction": { "parts": [{ "text": prompt }] },
             "contents": history_turns(input).into_iter()
                 .map(|(role, content)| serde_json::json!({ "role": if role == "assistant" { "model" } else { "user" }, "parts": [{ "text": content }] }))
-                .chain(std::iter::once(serde_json::json!({ "role": "user", "parts": [{ "text": user_message }] })))
+                .chain(std::iter::once(serde_json::json!({ "role": "user", "parts": gemini_user_parts(input) })))
                 .collect::<Vec<_>>(),
             "generationConfig": { "temperature": temperature },
         }),
@@ -170,7 +245,7 @@ pub(crate) fn remote_body(
             "stream": stream,
             "messages": std::iter::once(serde_json::json!({ "role": "system", "content": prompt }))
                 .chain(history_turns(input).into_iter().map(|(role, content)| serde_json::json!({ "role": role, "content": content })))
-                .chain(std::iter::once(serde_json::json!({ "role": "user", "content": user_message })))
+                .chain(std::iter::once(ollama_user_message(input)))
                 .collect::<Vec<_>>(),
             "options": { "temperature": temperature },
         }),
@@ -179,7 +254,7 @@ pub(crate) fn remote_body(
             "stream": stream,
             "messages": std::iter::once(serde_json::json!({ "role": "system", "content": prompt }))
                 .chain(history_turns(input).into_iter().map(|(role, content)| serde_json::json!({ "role": role, "content": content })))
-                .chain(std::iter::once(serde_json::json!({ "role": "user", "content": user_message })))
+                .chain(std::iter::once(serde_json::json!({ "role": "user", "content": openai_user_content(input) })))
                 .collect::<Vec<_>>(),
             "temperature": temperature,
         }),
@@ -346,6 +421,7 @@ mod tests {
                     content: "second".to_string(),
                 },
             ],
+            attachments: Vec::new(),
         };
         assert_eq!(
             history_turns(&input),
@@ -362,6 +438,7 @@ mod tests {
             provider_type: Some("openai-compatible".to_string()), base_url: Some("https://example.com/v1".to_string()),
             api_path: None, request_timeout_ms: None, instructions: Some("请简洁回答".to_string()),
             temperature: None, reasoning_effort: None, web_search: true, history: Vec::new(),
+            attachments: Vec::new(),
         };
         let body = remote_body(&input, "openai-compatible", "model", false,
             "实时联网搜索结果\n[1] Example\nURL: https://example.com\n摘要: result");
@@ -369,5 +446,43 @@ mod tests {
         assert!(system.contains("实时联网搜索结果"));
         assert!(system.contains("https://example.com"));
         assert!(body.get("_5dmind").is_none());
+    }
+
+    #[test]
+    fn sends_image_attachments_as_multimodal_parts() {
+        let input = CompleteMessageInput {
+            timeline_id: "timeline-1".to_string(),
+            content: "这张图里有什么？".to_string(),
+            parent_node_id: None,
+            relation: None,
+            inquiry_root_id: None,
+            focus_selection: None,
+            model: Some("vision-model".to_string()),
+            provider_id: Some("provider".to_string()),
+            provider_type: Some("openai-compatible".to_string()),
+            base_url: Some("https://example.com/v1".to_string()),
+            api_path: None,
+            request_timeout_ms: None,
+            instructions: None,
+            temperature: None,
+            reasoning_effort: None,
+            web_search: false,
+            history: Vec::new(),
+            attachments: vec![AttachmentInput {
+                _id: "image-1".to_string(),
+                name: "photo.png".to_string(),
+                mime_type: "image/png".to_string(),
+                size: 4,
+                text_content: None,
+                data_url: Some("data:image/png;base64,aGVsbG8=".to_string()),
+            }],
+        };
+        let openai = remote_body(&input, "openai-compatible", "vision-model", false, "");
+        assert_eq!(openai["messages"][1]["content"][1]["type"], "image_url");
+        assert_eq!(openai["messages"][1]["content"][1]["image_url"]["url"], "data:image/png;base64,aGVsbG8=");
+
+        let gemini = remote_body(&input, "gemini", "vision-model", false, "");
+        assert_eq!(gemini["contents"][0]["parts"][1]["inline_data"]["mime_type"], "image/png");
+        assert_eq!(gemini["contents"][0]["parts"][1]["inline_data"]["data"], "aGVsbG8=");
     }
 }

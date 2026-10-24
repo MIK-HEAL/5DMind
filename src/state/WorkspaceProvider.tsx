@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ContextMode, ConversationNode, FocusSelection, Threat, WorkspaceSnapshot } from "../domain/types";
 import type { ConversationService } from "../domain/services";
 import type { ReasoningEffort } from "../domain/settings";
+import type { MessageAttachment } from "../domain/attachments";
+import { attachmentMetadata } from "../domain/attachments";
 import { getLastNode, getNode } from "../domain/selectors";
 import {
   activateConversation,
@@ -53,7 +55,7 @@ interface WorkspaceContextValue {
   toggleCompare: (timelineId: string) => void;
   sendMessage: (
     content: string,
-    options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string },
+    options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string; attachments?: MessageAttachment[] },
   ) => Promise<void>;
   createFocusedInquiry: (
     sourceNodeId: string,
@@ -71,6 +73,8 @@ interface WorkspaceContextValue {
   renameConversation: (conversationId: string, title: string) => Promise<void>;
   deleteConversation: (conversationId: string) => Promise<void>;
   updateMessage: (messageId: string, content: string) => Promise<void>;
+  editAndResendMessage: (messageId: string, content: string) => Promise<void>;
+  retryMessage: (messageId: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   resetWorkspace: () => Promise<void>;
   exportWorkspace: () => void;
@@ -80,6 +84,17 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
 function makeId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function describeSendError(error: unknown): string {
+  const candidate = error as { message?: string; code?: string; status?: number; requestId?: string; retryable?: boolean };
+  const code = candidate.code ?? (error instanceof DOMException && error.name === "AbortError" ? "REQUEST_ABORTED" : "MODEL_GATEWAY_ERROR");
+  const message = candidate.message ?? "模型服务未返回可用结果";
+  const parts = [`错误码 ${code}`];
+  if (typeof candidate.status === "number") parts.push(`HTTP ${candidate.status}`);
+  if (candidate.requestId) parts.push(`请求 ID ${candidate.requestId}`);
+  parts.push(candidate.retryable === false ? "不可重试" : "可重试");
+  return `${parts.join(" · ")}：${message}`;
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -93,6 +108,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [mapOpen, setMapOpen] = useState(false);
   const [mapPinned, setMapPinnedState] = useState(false);
   const [compareIds, setCompareIds] = useState<string[]>([]);
+  const attachmentPayloadsRef = useRef(new Map<string, MessageAttachment[]>());
   const snapshotRef = useRef(snapshot);
   const remoteService = useMemo(() => new HttpWorkspaceService(), []);
   const localRepository = runtimeTarget === "desktop" ? tauriWorkspaceRepository : workspaceRepository;
@@ -173,13 +189,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const focusInquiry = useCallback((nodeId?: string) => {
     setFocusedInquiryId(nodeId);
-    if (nodeId) setMapOpen(true);
   }, []);
 
   const openInquiry = useCallback((nodeId: string) => {
     setFocusedInquiryIds((current) => (current.includes(nodeId) ? current : [...current, nodeId]));
     setFocusedInquiryId(nodeId);
-    setMapOpen(true);
   }, []);
 
   const closeInquiry = useCallback(
@@ -200,17 +214,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setCompareIds((current) => toggleCompareId(current, timelineId));
   }, []);
 
-  const sendMessage = useCallback(
+  const sendMessageOnTimeline = useCallback(
     async (
       content: string,
-      options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string },
+      options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string; attachments?: MessageAttachment[] },
+      target?: { timelineId?: string; parentNodeId?: string; reuseUserNodeId?: string },
     ) => {
       const clean = content.trim();
       if (!clean) return;
-      const timelineId = snapshotRef.current.currentTimelineId;
+      const timelineId = target?.timelineId ?? snapshotRef.current.currentTimelineId;
       const now = new Date().toISOString();
       const userId = makeId("node");
-      const parentNodeId = getLastNode(snapshotRef.current, timelineId)?.id;
+      if (options?.attachments?.length) attachmentPayloadsRef.current.set(userId, options.attachments);
+      const parentNodeId = target?.parentNodeId ?? getLastNode(snapshotRef.current, timelineId)?.id;
       const userNode: ConversationNode = {
         id: userId,
         timelineId,
@@ -220,13 +236,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         summary: clean.slice(0, 44),
         status: "complete",
         createdAt: now,
-        metadata: { author: preferences.profileName.trim() || "你" },
+        metadata: {
+          author: preferences.profileName.trim() || "你",
+          ...(options?.attachments?.length
+            ? { attachments: options.attachments.map(attachmentMetadata) }
+            : {}),
+        },
       };
-      setSnapshot((current) => ({ ...current, nodes: [...current.nodes, userNode] }));
-      setSelectedNodeId(userId);
+      if (target?.reuseUserNodeId) {
+        setSnapshot((current) => ({
+          ...current,
+          nodes: current.nodes.map((item) =>
+            item.id === target.reuseUserNodeId
+              ? { ...item, content: clean, summary: clean.slice(0, 44), status: "complete" as const }
+              : item,
+          ),
+        }));
+      } else {
+        setSnapshot((current) => ({ ...current, nodes: [...current.nodes, userNode] }));
+      }
+      const displayUserId = target?.reuseUserNodeId ?? userId;
+      setSelectedNodeId(displayUserId);
 
       const eventContext = {
-        parentNodeId: userId,
+        parentNodeId: displayUserId,
         author: activeAgent.name,
         model: activeAgent.modelId,
         completedSummary: workspaceMode === "remote" ? "云端回复" : "本地回复",
@@ -236,6 +269,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           timelineId,
           content: clean,
           clientMessageId: userId,
+          replaceMessageId: target?.reuseUserNodeId,
           parentNodeId,
           model: activeAgent.modelId || undefined,
           providerId: activeProvider?.id,
@@ -247,12 +281,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           temperature: activeAgent.temperature,
           reasoningEffort: options?.reasoningEffort ?? activeAgent.reasoningEffort ?? "default",
           webSearch: options?.webSearch ?? activeAgent.tools.webSearch,
+          attachments: activeAgent.tools.files ? options?.attachments : undefined,
         })) {
           setSnapshot((current) => applyMessageEvent(current, event, eventContext));
           if (event.type === "message.started") setSelectedNodeId(event.message.id);
         }
       } catch (error) {
-        const detail = error instanceof Error ? error.message : "本地 ModelGateway 无法生成回复";
+        const detail = describeSendError(error);
         const failedId = makeId("node");
         setSnapshot((current) => ({
           ...current,
@@ -261,7 +296,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             buildFailedReplyNode({
               id: failedId,
               timelineId,
-              parentNodeId: userId,
+              parentNodeId: displayUserId,
               detail,
               author: activeAgent.name,
               model: activeAgent.modelId || undefined,
@@ -273,6 +308,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }
     },
     [activeAgent, activeProvider, conversationService, preferences.profileName],
+  );
+
+  const sendMessage = useCallback(
+    (content: string, options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string; attachments?: MessageAttachment[] }) =>
+      sendMessageOnTimeline(content, options),
+    [sendMessageOnTimeline],
   );
 
   const createFocusedInquiry = useCallback(
@@ -531,6 +572,52 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [conversationService, remoteService],
   );
 
+  const editAndResendMessage = useCallback(
+    async (messageId: string, content: string) => {
+      const source = snapshotRef.current.nodes.find((item) => item.id === messageId);
+      if (!source || source.kind !== "user") throw new Error("只有用户消息可以编辑并重新发送");
+      const clean = content.trim();
+      if (!clean) throw new Error("消息内容不能为空");
+      const updated = workspaceMode === "remote"
+        ? await remoteService.updateMessage(source.id, clean)
+        : await conversationService.updateMessage(source.id, clean);
+      const current = snapshotRef.current;
+      const updatedSnapshot = {
+        ...current,
+        nodes: current.nodes.map((item) => (item.id === source.id ? { ...item, ...updated } : item)),
+      };
+      snapshotRef.current = updatedSnapshot;
+      setSnapshot(updatedSnapshot);
+      const storedAttachments = attachmentPayloadsRef.current.get(source.id) ?? source.metadata.attachments;
+      await sendMessageOnTimeline(clean, {
+        attachments: storedAttachments?.map((attachment) => ({
+          id: attachment.id,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+          ...(attachment.textContent !== undefined ? { textContent: attachment.textContent } : {}),
+          ...(attachment.dataUrl ? { dataUrl: attachment.dataUrl } : {}),
+        })),
+      }, {
+        timelineId: current.currentTimelineId,
+        parentNodeId: source.id,
+        reuseUserNodeId: source.id,
+      });
+    },
+    [conversationService, remoteService, sendMessageOnTimeline],
+  );
+
+  const retryMessage = useCallback(
+    async (messageId: string) => {
+      const failed = snapshotRef.current.nodes.find((item) => item.id === messageId);
+      if (!failed || failed.kind !== "assistant") throw new Error("只能重试助手回复");
+      const parent = snapshotRef.current.nodes.find((item) => item.id === failed.parentNodeId && item.kind === "user");
+      if (!parent) throw new Error("找不到原始问题，无法重试");
+      await editAndResendMessage(parent.id, parent.content);
+    },
+    [editAndResendMessage],
+  );
+
   const deleteMessage = useCallback(
     async (messageId: string) => {
       const root = snapshotRef.current.nodes.find((item) => item.id === messageId);
@@ -639,6 +726,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     renameConversation,
     deleteConversation,
     updateMessage,
+    editAndResendMessage,
+    retryMessage,
     deleteMessage,
     resetWorkspace,
     exportWorkspace,

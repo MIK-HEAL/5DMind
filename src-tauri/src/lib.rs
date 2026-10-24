@@ -22,6 +22,7 @@ pub fn run() {
             db::save_workspace,
             db::reset_workspace,
             commands::complete_message,
+            commands::read_local_attachment,
             credentials::list_provider_credentials,
             credentials::set_provider_credential,
             credentials::delete_provider_credential,

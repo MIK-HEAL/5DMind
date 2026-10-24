@@ -1,8 +1,9 @@
+import type { AttachmentMetadata } from "./attachments";
+
 export type ConversationId = string;
 export type TimelineId = string;
 export type NodeId = string;
 export type ThreatId = string;
-
 export type ContextMode = "all" | "until-node" | "selected-only";
 export type NodeKind = "user" | "assistant" | "system" | "reference" | "merge";
 
@@ -55,6 +56,7 @@ export interface ConversationNode {
     boardName?: string;
     reasoning?: string;
     tags?: string[];
+    attachments?: AttachmentMetadata[];
   };
 }
 

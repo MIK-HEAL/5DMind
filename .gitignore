@@ -2,8 +2,10 @@ node_modules/
 dist/
 .npm-cache/
 src-tauri/target/
+.cargo-target-check/
 *.log
 
+# Local-only upstream source snapshots used for implementation reference.
 .reference/
 
 .workbuddy/

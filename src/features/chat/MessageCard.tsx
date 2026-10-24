@@ -9,11 +9,14 @@ import {
   MapPin,
   Merge,
   Pencil,
+  Paperclip,
   Quote,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 import { useState, type FormEvent, type MouseEvent, type PointerEvent } from "react";
 import type { ConversationNode, Threat, Timeline } from "../../domain/types";
+import { formatAttachmentSize } from "../../domain/attachments";
 import { useSettings } from "../../state/SettingsProvider";
 import { MessageMarkdown, ReasoningBlock, splitNodeContent } from "./MessageMarkdown";
 
@@ -28,10 +31,21 @@ interface MessageCardProps {
   onThreat: () => void;
   onReference: () => void;
   onEdit: (nodeId: string, content: string) => Promise<void>;
+  onEditAndResend: (nodeId: string, content: string) => Promise<void>;
+  onRetry: (nodeId: string) => Promise<void>;
   onDelete: () => void;
   inquiries: ConversationNode[];
   onSelectText: (event: MouseEvent<HTMLDivElement> | PointerEvent<HTMLDivElement>) => void;
   onOpenInquiry: (nodeId: string) => void;
+}
+
+function describeActionError(error: unknown, fallback: string) {
+  const candidate = error as { message?: string; code?: string; status?: number; requestId?: string };
+  const code = candidate.code ?? "MESSAGE_ACTION_FAILED";
+  const details = [code, typeof candidate.status === "number" ? `HTTP ${candidate.status}` : "", candidate.requestId ? `请求 ID ${candidate.requestId}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return `${details}：${candidate.message || fallback}`;
 }
 
 export function MessageCard({
@@ -45,6 +59,8 @@ export function MessageCard({
   onThreat,
   onReference,
   onEdit,
+  onEditAndResend,
+  onRetry,
   onDelete,
   inquiries,
   onSelectText,
@@ -56,6 +72,7 @@ export function MessageCard({
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState(node.content);
   const [editSaving, setEditSaving] = useState(false);
+  const [editResending, setEditResending] = useState(false);
   const [editError, setEditError] = useState<string>();
   const inherited = node.timelineId !== currentTimelineId;
   const openThreats = threats.filter((threat) => threat.status === "open");
@@ -92,9 +109,23 @@ export function MessageCard({
       await onEdit(node.id, editDraft);
       setEditing(false);
     } catch (error) {
-      setEditError(error instanceof Error && error.message ? error.message : "保存失败，请重试");
+      setEditError(describeActionError(error, "保存失败，请重试"));
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const submitEditAndResend = async () => {
+    if (!editDraft.trim() || editSaving || editResending) return;
+    setEditError(undefined);
+    setEditResending(true);
+    try {
+      await onEditAndResend(node.id, editDraft);
+      setEditing(false);
+    } catch (error) {
+      setEditError(describeActionError(error, "重新发送失败，请重试"));
+    } finally {
+      setEditResending(false);
     }
   };
 
@@ -163,6 +194,18 @@ export function MessageCard({
           <Pencil size={15} />
         </button>
       )}
+      {!isUser && node.status === "failed" && !inherited && (
+        <button
+          title="重新生成"
+          aria-label="重新生成"
+          onClick={(event) => {
+            event.stopPropagation();
+            void onRetry(node.id).catch(() => undefined);
+          }}
+        >
+          <RotateCcw size={15} />
+        </button>
+      )}
       {!inherited && node.status !== "streaming" && (
         <button
           className="message-action-danger"
@@ -206,6 +249,35 @@ export function MessageCard({
             来自 {node.metadata.boardName ?? "另一个盘面"}
           </div>
         )}
+        {node.metadata.attachments?.length ? (
+          <div className="message-attachments" aria-label="消息附件">
+            {node.metadata.attachments.map((attachment) => (
+              attachment.mimeType.startsWith("image/") && attachment.dataUrl ? (
+                <a
+                  className="message-image-attachment"
+                  key={attachment.id}
+                  href={attachment.dataUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`查看 ${attachment.name}`}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <img src={attachment.dataUrl} alt={attachment.name} loading="lazy" decoding="async" />
+                  <span>
+                    <strong>{attachment.name}</strong>
+                    <small>图片 · {formatAttachmentSize(attachment.size)}</small>
+                  </span>
+                </a>
+              ) : (
+                <span className="message-attachment" key={attachment.id} title={attachment.name}>
+                  <Paperclip size={12} />
+                  <strong>{attachment.name}</strong>
+                  <small>{formatAttachmentSize(attachment.size)}</small>
+                </span>
+              )
+            ))}
+          </div>
+        ) : null}
         {node.kind === "merge" && (
           <div className="merge-source">
             <Merge size={14} />
@@ -230,6 +302,10 @@ export function MessageCard({
               }}
               rows={Math.min(8, Math.max(3, editDraft.split(/\r?\n/).length))}
             />
+            <div className="message-edit-meta">
+              <span>{editError ? "发送失败，请检查后重试" : "修改后会生成新的回答版本，原回答仍会保留"}</span>
+              <strong>{editDraft.length.toLocaleString()} 字</strong>
+            </div>
             <footer>
               <span className={editError ? "message-edit-error" : undefined}>
                 {editError ?? "Enter 保存 · Shift+Enter 换行"}
@@ -244,8 +320,16 @@ export function MessageCard({
               >
                 取消
               </button>
-              <button className="primary" disabled={editSaving || !editDraft.trim()}>
-                {editSaving ? "保存中" : "保存"}
+              <button
+                type="button"
+                className="primary"
+                disabled={editSaving || editResending || !editDraft.trim()}
+                onClick={() => void submitEditAndResend()}
+              >
+                {editResending ? "发送中" : "保存并重新发送"}
+              </button>
+              <button type="submit" disabled={editSaving || editResending || !editDraft.trim()}>
+                {editSaving ? "保存中" : "仅保存"}
               </button>
             </footer>
           </form>

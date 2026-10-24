@@ -173,6 +173,7 @@ export class TauriConversationService implements ConversationService {
         temperature: input.temperature,
         reasoningEffort: input.reasoningEffort,
         webSearch: input.webSearch,
+        attachments: input.attachments,
         history,
       },
       onEvent: channel,

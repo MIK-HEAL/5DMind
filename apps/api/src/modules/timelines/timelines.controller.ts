@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Inject, Param, Patch, Post, Sse } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Inject, Param, Patch, Post, Query, Sse } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { Observable } from "rxjs";
 import { z } from "zod";
@@ -10,6 +10,7 @@ import { ZodValidationPipe } from "../../shared/validation/zod-validation.pipe.j
 const turnSchema = z.object({
   content: z.string().trim().min(1).max(200_000),
   clientMessageId: z.string().min(1).max(200),
+  replaceMessageId: z.string().min(1).max(200).optional(),
   parentNodeId: z.string().min(1).max(200).optional(),
   inquiryRootId: z.string().min(1).max(200).optional(),
   model: z.string().trim().min(1).max(100).optional(),
@@ -21,6 +22,14 @@ const turnSchema = z.object({
     end: z.number().int().nonnegative().optional(),
     contentHash: z.string().trim().min(1).max(64),
   }).optional(),
+  attachments: z.array(z.object({
+    id: z.string().min(1).max(300),
+    name: z.string().trim().min(1).max(512),
+    mimeType: z.string().trim().max(160),
+    size: z.number().int().nonnegative().max(8 * 1024 * 1024),
+    textContent: z.string().max(120_000).optional(),
+    dataUrl: z.string().max(12 * 1024 * 1024).optional(),
+  })).max(5).optional(),
 });
 const forkSchema = z.object({
   name: z.string().trim().max(200).optional(),
@@ -39,6 +48,17 @@ export class TimelinesController {
   @ApiOperation({ summary: "获取服务端权威上下文" })
   context(@Param("timelineId") timelineId: string) {
     return this.store.getContext(timelineId);
+  }
+
+  @Get("turns/:turnId/attachments/:attachmentId")
+  @ApiOperation({ summary: "按本轮附件白名单读取文本摘录" })
+  readAttachment(
+    @Param("turnId") turnId: string,
+    @Param("attachmentId") attachmentId: string,
+    @Query("offset") offset?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.store.readTurnAttachment(turnId, attachmentId, Number(offset) || 0, Number(limit) || 12_000);
   }
 
   @Post("timelines/:timelineId/turns")

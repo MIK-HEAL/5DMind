@@ -21,3 +21,4 @@ uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 regex = "1"
+base64 = "0.22"

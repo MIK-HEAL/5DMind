@@ -1,9 +1,70 @@
 use crate::providers::chat::complete_remote;
 use crate::providers::stream::{complete_remote_stream, emit_stream_event};
+use base64::Engine;
+use serde::Serialize;
+use std::path::Path;
 use crate::providers::{
     CompleteMessageInput, CompleteMessageResponse, ProviderStreamEvent, provider_kind,
     validated_relation,
 };
+
+const MAX_ATTACHMENT_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_ATTACHMENT_TEXT: usize = 120_000;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LocalAttachment {
+    pub(crate) name: String,
+    pub(crate) mime_type: String,
+    pub(crate) size: u64,
+    pub(crate) text_content: Option<String>,
+    pub(crate) data_url: Option<String>,
+}
+
+#[tauri::command]
+pub(crate) fn read_local_attachment(path: String) -> Result<LocalAttachment, String> {
+    let source = Path::new(&path);
+    let metadata = std::fs::metadata(source).map_err(|error| format!("无法读取文件：{error}"))?;
+    if !metadata.is_file() {
+        return Err("只能附加普通文件".to_string());
+    }
+    if metadata.len() > MAX_ATTACHMENT_BYTES {
+        return Err("单文件不能超过 8 MB".to_string());
+    }
+    let name = source.file_name().and_then(|value| value.to_str()).unwrap_or("附件").to_string();
+    let extension = source.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
+    if matches!(extension.as_str(), "exe" | "dll" | "dmg" | "app" | "sh" | "bat" | "cmd" | "ps1" | "com") {
+        return Err("不支持附加可执行文件".to_string());
+    }
+    let bytes = std::fs::read(source).map_err(|error| format!("文件读取失败：{error}"))?;
+    let mime_type = match extension.as_str() {
+        "md" | "mdx" => "text/markdown",
+        "txt" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "json" | "jsonl" => "application/json",
+        "html" | "htm" => "text/html",
+        "xml" => "application/xml",
+        "yaml" | "yml" => "text/yaml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    }.to_string();
+    let is_text = mime_type.starts_with("text/") || matches!(extension.as_str(), "json" | "jsonl" | "xml" | "yaml" | "yml");
+    let text_content = if is_text {
+        Some(String::from_utf8_lossy(&bytes).chars().take(MAX_ATTACHMENT_TEXT).collect())
+    } else {
+        None
+    };
+    let data_url = if text_content.is_none() {
+        Some(format!("data:{};base64,{}", mime_type, base64::engine::general_purpose::STANDARD.encode(bytes)))
+    } else {
+        None
+    };
+    Ok(LocalAttachment { name, mime_type, size: metadata.len(), text_content, data_url })
+}
 
 pub(crate) async fn complete_message_inner(
     input: CompleteMessageInput,
@@ -19,11 +80,16 @@ pub(crate) async fn complete_message_inner(
     } else {
         content.to_string()
     };
+    let attachment_suffix = if input.attachments.is_empty() {
+        String::new()
+    } else {
+        format!(" · 附件 {} 个", input.attachments.len())
+    };
     let subject = if subject_content.chars().count() > 36 {
         let shortened: String = subject_content.chars().take(36).collect();
-        format!("{shortened}…")
+        format!("{shortened}…{attachment_suffix}")
     } else {
-        subject_content
+        format!("{subject_content}{attachment_suffix}")
     };
     let message_id = format!("node-{}", uuid::Uuid::new_v4());
     let model = input
@@ -175,6 +241,7 @@ mod tests {
                 reasoning_effort: None,
                 web_search: false,
                 history: Vec::new(),
+                attachments: Vec::new(),
             },
             None,
         ))
@@ -195,6 +262,7 @@ mod tests {
                 provider_type: Some("local".to_string()), base_url: None, api_path: None,
                 request_timeout_ms: None, instructions: None, temperature: None, reasoning_effort: None,
                 web_search: true, history: Vec::new(),
+                attachments: Vec::new(),
             }, None,
         ));
         assert!(result.expect_err("local web search should be rejected").contains("不支持联网搜索"));
@@ -228,6 +296,7 @@ mod tests {
                 reasoning_effort: None,
                 web_search: false,
                 history: Vec::new(),
+                attachments: Vec::new(),
             },
             None,
         ))

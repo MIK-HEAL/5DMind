@@ -33,6 +33,21 @@ pub(crate) struct CompleteMessageInput {
     pub(crate) web_search: bool,
     #[serde(default)]
     pub(crate) history: Vec<ConversationTurnInput>,
+    #[serde(default)]
+    pub(crate) attachments: Vec<AttachmentInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AttachmentInput {
+    #[serde(rename = "id")]
+    pub(crate) _id: String,
+    pub(crate) name: String,
+    pub(crate) mime_type: String,
+    pub(crate) size: u64,
+    pub(crate) text_content: Option<String>,
+    #[serde(rename = "dataUrl")]
+    pub(crate) data_url: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
