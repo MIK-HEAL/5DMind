@@ -36,7 +36,10 @@ async function writeIndexedDb(snapshot: WorkspaceSnapshot): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).put(snapshot, SNAPSHOT_KEY);
-    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
     tx.onerror = () => reject(tx.error);
   });
 }

@@ -1,18 +1,5 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
-import type {
-  AgentProfile,
-  ModelProvider,
-  SettingsSection,
-  UserPreferences,
-} from "../domain/settings";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { AgentProfile, ModelProvider, SettingsSection, UserPreferences } from "../domain/settings";
 import { defaultPreferences, settingsRepository } from "../infrastructure/settingsRepository";
 import { runtimeTarget } from "../infrastructure/runtime";
 import {
@@ -69,9 +56,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     if (runtimeTarget !== "desktop") return;
     let active = true;
     void listProviderCredentialStatus(providerIds.split("|").filter(Boolean))
-      .then((status) => { if (active) setProviderCredentialStatus(status); })
-      .catch(() => { if (active) setProviderCredentialStatus({}); });
-    return () => { active = false; };
+      .then((status) => {
+        if (active) setProviderCredentialStatus(status);
+      })
+      .catch(() => {
+        if (active) setProviderCredentialStatus({});
+      });
+    return () => {
+      active = false;
+    };
   }, [providerIds]);
 
   const openSettings = useCallback((section: SettingsSection = "general") => {
@@ -86,24 +79,27 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setActiveAgent = useCallback((agentId: string) => {
-    setPreferences((current) => current.agents.some((agent) => agent.id === agentId)
-      ? { ...current, activeAgentId: agentId }
-      : current);
+    setPreferences((current) =>
+      current.agents.some((agent) => agent.id === agentId) ? { ...current, activeAgentId: agentId } : current,
+    );
   }, []);
 
   const addProvider = useCallback(() => {
     const id = makeId("provider");
     setPreferences((current) => ({
       ...current,
-      providers: [...current.providers, {
-        id,
-        name: "自定义服务",
-        type: "openai-compatible",
-        enabled: false,
-        baseUrl: "",
-        models: [],
-        requestTimeoutMs: 120000,
-      }],
+      providers: [
+        ...current.providers,
+        {
+          id,
+          name: "自定义服务",
+          type: "openai-compatible",
+          enabled: false,
+          baseUrl: "",
+          models: [],
+          requestTimeoutMs: 120000,
+        },
+      ],
     }));
     return id;
   }, []);
@@ -111,26 +107,29 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const updateProvider = useCallback((providerId: string, patch: Partial<ModelProvider>) => {
     setPreferences((current) => ({
       ...current,
-      providers: current.providers.map((provider) => provider.id === providerId
-        ? { ...provider, ...patch }
-        : provider),
+      providers: current.providers.map((provider) =>
+        provider.id === providerId ? { ...provider, ...patch } : provider,
+      ),
     }));
   }, []);
 
-  const deleteProvider = useCallback(async (providerId: string) => {
-    const provider = preferences.providers.find((item) => item.id === providerId);
-    if (!provider || provider.builtIn || preferences.agents.some((agent) => agent.providerId === providerId)) return;
-    if (runtimeTarget === "desktop") await deleteProviderApiKey(providerId);
-    setPreferences((current) => ({
-      ...current,
-      providers: current.providers.filter((item) => item.id !== providerId),
-    }));
-    setProviderCredentialStatus((current) => {
-      const next = { ...current };
-      delete next[providerId];
-      return next;
-    });
-  }, [preferences.agents, preferences.providers]);
+  const deleteProvider = useCallback(
+    async (providerId: string) => {
+      const provider = preferences.providers.find((item) => item.id === providerId);
+      if (!provider || provider.builtIn || preferences.agents.some((agent) => agent.providerId === providerId)) return;
+      if (runtimeTarget === "desktop") await deleteProviderApiKey(providerId);
+      setPreferences((current) => ({
+        ...current,
+        providers: current.providers.filter((item) => item.id !== providerId),
+      }));
+      setProviderCredentialStatus((current) => {
+        const next = { ...current };
+        delete next[providerId];
+        return next;
+      });
+    },
+    [preferences.agents, preferences.providers],
+  );
 
   const addAgent = useCallback(() => {
     const id = makeId("agent");
@@ -154,20 +153,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return id;
   }, []);
 
-  const duplicateAgent = useCallback((agentId: string) => {
-    const source = preferences.agents.find((agent) => agent.id === agentId);
-    if (!source) return undefined;
-    const id = makeId("agent");
-    setPreferences((current) => {
-      return { ...current, agents: [...current.agents, { ...structuredClone(source), id, name: `${source.name} 副本` }] };
-    });
-    return id;
-  }, [preferences.agents]);
+  const duplicateAgent = useCallback(
+    (agentId: string) => {
+      const source = preferences.agents.find((agent) => agent.id === agentId);
+      if (!source) return undefined;
+      const id = makeId("agent");
+      setPreferences((current) => {
+        return {
+          ...current,
+          agents: [...current.agents, { ...structuredClone(source), id, name: `${source.name} 副本` }],
+        };
+      });
+      return id;
+    },
+    [preferences.agents],
+  );
 
   const updateAgent = useCallback((agentId: string, patch: Partial<AgentProfile>) => {
     setPreferences((current) => ({
       ...current,
-      agents: current.agents.map((agent) => agent.id === agentId ? { ...agent, ...patch } : agent),
+      agents: current.agents.map((agent) => (agent.id === agentId ? { ...agent, ...patch } : agent)),
     }));
   }, []);
 
@@ -195,26 +200,38 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setProviderCredentialStatus((current) => ({ ...current, [providerId]: false }));
   }, []);
 
-  const checkProvider = useCallback(async (providerId: string, model?: string) => {
-    const provider = preferences.providers.find((item) => item.id === providerId);
-    if (!provider) throw new Error("Provider 不存在");
-    return testProviderConnection(provider, model);
-  }, [preferences.providers]);
+  const checkProvider = useCallback(
+    async (providerId: string, model?: string) => {
+      const provider = preferences.providers.find((item) => item.id === providerId);
+      if (!provider) throw new Error("Provider 不存在");
+      return testProviderConnection(provider, model);
+    },
+    [preferences.providers],
+  );
 
-  const refreshModels = useCallback(async (providerId: string) => {
-    const provider = preferences.providers.find((item) => item.id === providerId);
-    if (!provider) throw new Error("Provider 不存在");
-    const models = await listProviderModels(provider);
-    setPreferences((current) => current.providers.some((item) => item.id === providerId)
-      ? { ...current, providers: current.providers.map((item) => item.id === providerId ? { ...item, models } : item) }
-      : current);
-    return models;
-  }, [preferences.providers]);
+  const refreshModels = useCallback(
+    async (providerId: string) => {
+      const provider = preferences.providers.find((item) => item.id === providerId);
+      if (!provider) throw new Error("Provider 不存在");
+      const models = await listProviderModels(provider);
+      setPreferences((current) =>
+        current.providers.some((item) => item.id === providerId)
+          ? {
+              ...current,
+              providers: current.providers.map((item) => (item.id === providerId ? { ...item, models } : item)),
+            }
+          : current,
+      );
+      return models;
+    },
+    [preferences.providers],
+  );
 
   const activeAgent = useMemo(
-    () => preferences.agents.find((agent) => agent.id === preferences.activeAgentId)
-      ?? preferences.agents[0]
-      ?? defaultPreferences.agents[0],
+    () =>
+      preferences.agents.find((agent) => agent.id === preferences.activeAgentId) ??
+      preferences.agents[0] ??
+      defaultPreferences.agents[0],
     [preferences.activeAgentId, preferences.agents],
   );
 

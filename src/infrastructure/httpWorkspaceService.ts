@@ -51,7 +51,9 @@ function makeSnapshot(graphs: GraphSnapshot[]): WorkspaceSnapshot {
   const threats = graphs.flatMap((graph) => graph.threats);
   const references = [...new Map(graphs.flatMap((graph) => graph.references).map((item) => [item.id, item])).values()];
   const currentConversation = conversations[0];
-  const currentTimeline = timelines.find((timeline) => timeline.conversationId === currentConversation?.id && timeline.status === "active") ?? timelines[0];
+  const currentTimeline =
+    timelines.find((timeline) => timeline.conversationId === currentConversation?.id && timeline.status === "active") ??
+    timelines[0];
   if (!currentConversation || !currentTimeline) throw new Error("服务端没有可用的工作区时间线");
   return {
     version: 1,
@@ -152,7 +154,11 @@ export class HttpWorkspaceService implements ConversationService, TimelineServic
     return this.request<ContextSnapshot>(`/timelines/${encodeURIComponent(timelineId)}/context`);
   }
 
-  async forkFromMessage(messageId: string, name?: string, contextMode: Timeline["contextMode"] = "until-node"): Promise<Timeline> {
+  async forkFromMessage(
+    messageId: string,
+    name?: string,
+    contextMode: Timeline["contextMode"] = "until-node",
+  ): Promise<Timeline> {
     return this.request<Timeline>(`/messages/${encodeURIComponent(messageId)}/forks`, {
       method: "POST",
       body: { name, contextMode },
@@ -199,12 +205,15 @@ export class HttpWorkspaceService implements ConversationService, TimelineServic
     });
   }
 
-  private async request<T>(path: string, options: {
-    method?: string;
-    body?: unknown;
-    idempotent?: boolean;
-    signal?: AbortSignal;
-  } = {}): Promise<T> {
+  private async request<T>(
+    path: string,
+    options: {
+      method?: string;
+      body?: unknown;
+      idempotent?: boolean;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<T> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (options.body !== undefined) headers["Content-Type"] = "application/json";
     if (options.idempotent) headers["Idempotency-Key"] = idempotencyKey();
@@ -241,20 +250,31 @@ export class HttpWorkspaceService implements ConversationService, TimelineServic
           if (item.id) lastEventId = item.id;
           if (!item.event || !item.data.length) return undefined;
           const payload = JSON.parse(item.data.join("\n")) as Record<string, unknown>;
-          if (item.event === "message.started") return { type: "message.started", message: payload.message as ConversationNode };
+          if (item.event === "message.started")
+            return { type: "message.started", message: payload.message as ConversationNode };
           if (item.event === "message.delta") {
             const reasoning = payload.reasoning ?? payload.reasoningContent ?? payload.reasoning_content;
-            if (typeof reasoning === "string" && reasoning) return { type: "message.reasoning_delta", messageId: String(payload.messageId), delta: reasoning };
+            if (typeof reasoning === "string" && reasoning)
+              return { type: "message.reasoning_delta", messageId: String(payload.messageId), delta: reasoning };
             return { type: "message.delta", messageId: String(payload.messageId), delta: String(payload.delta ?? "") };
           }
-          if (item.event === "message.reasoning_delta") return { type: "message.reasoning_delta", messageId: String(payload.messageId), delta: String(payload.delta ?? "") };
+          if (item.event === "message.reasoning_delta")
+            return {
+              type: "message.reasoning_delta",
+              messageId: String(payload.messageId),
+              delta: String(payload.delta ?? ""),
+            };
           if (item.event === "message.completed") {
             terminal = true;
             return { type: "message.completed", messageId: String(payload.messageId) };
           }
           if (item.event === "message.failed") {
             terminal = true;
-            return { type: "message.failed", messageId: String(payload.messageId), error: String(payload.error ?? "生成失败") };
+            return {
+              type: "message.failed",
+              messageId: String(payload.messageId),
+              error: String(payload.error ?? "生成失败"),
+            };
           }
           return undefined;
         };
@@ -303,6 +323,10 @@ export class HttpWorkspaceService implements ConversationService, TimelineServic
   }
 
   private async readError(response: Response): Promise<ApiErrorBody | undefined> {
-    try { return await response.json() as ApiErrorBody; } catch { return undefined; }
+    try {
+      return (await response.json()) as ApiErrorBody;
+    } catch {
+      return undefined;
+    }
   }
 }

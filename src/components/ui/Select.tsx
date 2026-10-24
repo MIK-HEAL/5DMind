@@ -63,6 +63,11 @@ export function Select({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [position, setPosition] = useState<MenuPosition>();
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open) setPosition(undefined);
+  }
   const selectedIndex = options.findIndex((option) => option.value === value);
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
 
@@ -95,11 +100,7 @@ export function Select({
   }, [variant]);
 
   useLayoutEffect(() => {
-    if (!open) {
-      setPosition(undefined);
-      return;
-    }
-
+    if (!open) return;
     updatePosition();
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
@@ -120,10 +121,17 @@ export function Select({
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    setActiveIndex(selectedIndex >= 0 && !options[selectedIndex]?.disabled ? selectedIndex : firstEnabledIndex());
-  }, [firstEnabledIndex, open, options, selectedIndex]);
+  const [activeSyncKey, setActiveSyncKey] = useState({ open, selectedIndex, firstEnabledIndex, options });
+  if (
+    activeSyncKey.open !== open ||
+    activeSyncKey.selectedIndex !== selectedIndex ||
+    activeSyncKey.firstEnabledIndex !== firstEnabledIndex ||
+    activeSyncKey.options !== options
+  ) {
+    setActiveSyncKey({ open, selectedIndex, firstEnabledIndex, options });
+    if (open)
+      setActiveIndex(selectedIndex >= 0 && !options[selectedIndex]?.disabled ? selectedIndex : firstEnabledIndex());
+  }
 
   const moveActive = (direction: 1 | -1) => {
     if (!options.length) return;
@@ -187,41 +195,46 @@ export function Select({
     if (event.key === "Tab") setOpen(false);
   };
 
-  const menu = open && position ? createPortal(
-    <div
-      ref={menuRef}
-      id={listboxId}
-      className="ui-select-menu"
-      role="listbox"
-      aria-label={ariaLabel}
-      style={position}
-      onKeyDown={onKeyDown}
-    >
-      {options.map((option, index) => (
-        <button
-          type="button"
-          id={`${listboxId}-option-${index}`}
-          role="option"
-          aria-selected={option.value === value}
-          disabled={option.disabled}
-          tabIndex={-1}
-          key={option.value}
-          className={`ui-select-option ${index === activeIndex ? "is-active" : ""} ${option.value === value ? "is-selected" : ""}`}
-          onMouseEnter={() => { if (!option.disabled) setActiveIndex(index); }}
-          onClick={() => choose(option)}
-        >
-          {option.icon && <span className="ui-select-option-icon">{option.icon}</span>}
-          {option.color && <i className="ui-select-color" style={{ backgroundColor: option.color }} />}
-          <span className="ui-select-option-copy">
-            <strong>{option.label}</strong>
-            {option.description && <small>{option.description}</small>}
-          </span>
-          {option.value === value && <Check className="ui-select-check" size={15} />}
-        </button>
-      ))}
-    </div>,
-    document.body,
-  ) : null;
+  const menu =
+    open && position
+      ? createPortal(
+          <div
+            ref={menuRef}
+            id={listboxId}
+            className="ui-select-menu"
+            role="listbox"
+            aria-label={ariaLabel}
+            style={position}
+            onKeyDown={onKeyDown}
+          >
+            {options.map((option, index) => (
+              <button
+                type="button"
+                id={`${listboxId}-option-${index}`}
+                role="option"
+                aria-selected={option.value === value}
+                disabled={option.disabled}
+                tabIndex={-1}
+                key={option.value}
+                className={`ui-select-option ${index === activeIndex ? "is-active" : ""} ${option.value === value ? "is-selected" : ""}`}
+                onMouseEnter={() => {
+                  if (!option.disabled) setActiveIndex(index);
+                }}
+                onClick={() => choose(option)}
+              >
+                {option.icon && <span className="ui-select-option-icon">{option.icon}</span>}
+                {option.color && <i className="ui-select-color" style={{ backgroundColor: option.color }} />}
+                <span className="ui-select-option-copy">
+                  <strong>{option.label}</strong>
+                  {option.description && <small>{option.description}</small>}
+                </span>
+                {option.value === value && <Check className="ui-select-check" size={15} />}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <div className={`ui-select ui-select-${variant} ui-select-${size} ${open ? "is-open" : ""} ${className}`}>
@@ -235,12 +248,17 @@ export function Select({
         aria-controls={open ? listboxId : undefined}
         aria-activedescendant={open && activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
         disabled={disabled}
-        onClick={() => { if (open) setOpen(false); else openMenu(); }}
+        onClick={() => {
+          if (open) setOpen(false);
+          else openMenu();
+        }}
         onKeyDown={onKeyDown}
       >
         {leadingIcon && <span className="ui-select-leading">{leadingIcon}</span>}
         {selected?.color && <i className="ui-select-color" style={{ backgroundColor: selected.color }} />}
-        <span className={`ui-select-value ${selected ? "" : "is-placeholder"}`}><strong>{selected?.label ?? placeholder}</strong></span>
+        <span className={`ui-select-value ${selected ? "" : "is-placeholder"}`}>
+          <strong>{selected?.label ?? placeholder}</strong>
+        </span>
         <ChevronDown className="ui-select-chevron" size={14} />
       </button>
       {menu}

@@ -5,11 +5,19 @@ function createStorage(): Storage {
   const values = new Map<string, string>();
   return {
     getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => { values.set(key, value); },
-    removeItem: (key) => { values.delete(key); },
-    clear: () => { values.clear(); },
+    setItem: (key, value) => {
+      values.set(key, value);
+    },
+    removeItem: (key) => {
+      values.delete(key);
+    },
+    clear: () => {
+      values.clear();
+    },
     key: (index) => [...values.keys()][index] ?? null,
-    get length() { return values.size; },
+    get length() {
+      return values.size;
+    },
   };
 }
 
@@ -43,7 +51,7 @@ describe("settingsRepository", () => {
 
   it("scrubs legacy API key fields before writing provider settings", () => {
     const preferences = settingsRepository.load();
-    const provider = preferences.providers[0] as typeof preferences.providers[number] & { apiKey?: string };
+    const provider = preferences.providers[0] as (typeof preferences.providers)[number] & { apiKey?: string };
     provider.apiKey = "should-not-be-persisted";
     provider.modelsPath = "/v1/models";
     settingsRepository.save(preferences);

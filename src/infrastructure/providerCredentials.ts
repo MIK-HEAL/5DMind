@@ -17,10 +17,9 @@ function requireDesktop() {
 
 export async function listProviderCredentialStatus(providerIds: string[]): Promise<Record<string, boolean>> {
   requireDesktop();
-  const statuses = await invoke<Array<{ providerId: string; configured: boolean }>>(
-    "list_provider_credentials",
-    { providerIds },
-  );
+  const statuses = await invoke<Array<{ providerId: string; configured: boolean }>>("list_provider_credentials", {
+    providerIds,
+  });
   return Object.fromEntries(statuses.map((status) => [status.providerId, status.configured]));
 }
 
@@ -34,7 +33,10 @@ export async function deleteProviderApiKey(providerId: string): Promise<void> {
   await invoke("delete_provider_credential", { providerId });
 }
 
-export async function testProviderConnection(provider: ModelProvider, model?: string): Promise<ProviderConnectionResult> {
+export async function testProviderConnection(
+  provider: ModelProvider,
+  model?: string,
+): Promise<ProviderConnectionResult> {
   requireDesktop();
   return invoke<ProviderConnectionResult>("test_provider_connection", {
     input: {

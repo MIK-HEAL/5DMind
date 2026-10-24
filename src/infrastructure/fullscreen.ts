@@ -31,7 +31,9 @@ export async function subscribeFullscreen(onChange: (fullscreen: boolean) => voi
   if (runtimeTarget === "desktop") {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const currentWindow = getCurrentWindow();
-    const sync = () => { void isFullscreen().then(onChange); };
+    const sync = () => {
+      void isFullscreen().then(onChange);
+    };
     const [unlistenResize, unlistenFocus] = await Promise.all([
       currentWindow.onResized(sync),
       currentWindow.onFocusChanged(sync),

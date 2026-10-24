@@ -4,12 +4,7 @@ export type NodeId = string;
 export type ThreatId = string;
 
 export type ContextMode = "all" | "until-node" | "selected-only";
-export type NodeKind =
-  | "user"
-  | "assistant"
-  | "system"
-  | "reference"
-  | "merge";
+export type NodeKind = "user" | "assistant" | "system" | "reference" | "merge";
 
 export interface FocusSelection {
   sourceNodeId: NodeId;

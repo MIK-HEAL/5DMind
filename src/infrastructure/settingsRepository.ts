@@ -149,9 +149,11 @@ export const settingsRepository = {
       if (localProvider) {
         localProvider.enabled = true;
         if (!localProvider.models.length) localProvider.models = ["5D Local Gateway"];
-        merged.agents = merged.agents.map((agent) => agent.providerId === localProvider.id && !agent.modelId
-          ? { ...agent, modelId: localProvider.models[0] }
-          : agent);
+        merged.agents = merged.agents.map((agent) =>
+          agent.providerId === localProvider.id && !agent.modelId
+            ? { ...agent, modelId: localProvider.models[0] }
+            : agent,
+        );
       }
       if (!merged.agents.some((agent) => agent.id === merged.activeAgentId)) {
         merged.activeAgentId = merged.agents[0]?.id ?? defaultPreferences.activeAgentId;

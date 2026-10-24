@@ -62,7 +62,9 @@ class AsyncEventQueue<T> {
     if (this.closed) {
       return this.failure ? Promise.reject(this.failure) : Promise.resolve({ value: undefined, done: true });
     }
-    return new Promise((resolve, reject) => { this.waiter = { resolve, reject }; });
+    return new Promise((resolve, reject) => {
+      this.waiter = { resolve, reject };
+    });
   }
 }
 
@@ -90,10 +92,12 @@ function conversationHistory(snapshot: WorkspaceSnapshot, input: SendMessageInpu
       current = current.parentNodeId ? nodesById.get(current.parentNodeId) : undefined;
     }
     if (current?.id === input.inquiryRootId) inquiryPath.unshift(current);
-    turns.push(...inquiryPath
-      .filter((node) => (node.kind === "user" || node.kind === "assistant") && node.status === "complete")
-      .filter((node) => node.content.trim())
-      .map((node) => ({ role: node.kind as "user" | "assistant", content: node.content.trim() })));
+    turns.push(
+      ...inquiryPath
+        .filter((node) => (node.kind === "user" || node.kind === "assistant") && node.status === "complete")
+        .filter((node) => node.content.trim())
+        .map((node) => ({ role: node.kind as "user" | "assistant", content: node.content.trim() })),
+    );
   }
 
   const selected: ConversationTurn[] = [];
@@ -109,7 +113,7 @@ function conversationHistory(snapshot: WorkspaceSnapshot, input: SendMessageInpu
 
 /** Desktop conversation adapter: IPC to the Rust local ModelGateway, then local event shaping. */
 export class TauriConversationService implements ConversationService {
-  constructor(private readonly getSnapshot: () => WorkspaceSnapshot) {}
+  constructor(private readonly snapshotRef: { current: WorkspaceSnapshot }) {}
 
   async createConversation(title: string): Promise<Conversation> {
     const now = new Date().toISOString();
@@ -124,17 +128,18 @@ export class TauriConversationService implements ConversationService {
   }
 
   async renameConversation(conversationId: string, title: string): Promise<Conversation> {
-    const conversation = this.getSnapshot().conversations.find((item) => item.id === conversationId);
+    const conversation = this.snapshotRef.current.conversations.find((item) => item.id === conversationId);
     if (!conversation) throw new Error("对话不存在");
     return { ...conversation, title: title.trim(), updatedAt: new Date().toISOString() };
   }
 
   async deleteConversation(conversationId: string): Promise<void> {
-    if (!this.getSnapshot().conversations.some((item) => item.id === conversationId)) throw new Error("对话不存在");
+    if (!this.snapshotRef.current.conversations.some((item) => item.id === conversationId))
+      throw new Error("对话不存在");
   }
 
   async updateMessage(messageId: string, content: string): Promise<ConversationNode> {
-    const node = this.getSnapshot().nodes.find((item) => item.id === messageId);
+    const node = this.snapshotRef.current.nodes.find((item) => item.id === messageId);
     if (!node) throw new Error("消息不存在");
     const clean = content.trim();
     if (!clean) throw new Error("消息内容不能为空");
@@ -142,12 +147,12 @@ export class TauriConversationService implements ConversationService {
   }
 
   async deleteMessage(messageId: string): Promise<void> {
-    if (!this.getSnapshot().nodes.some((item) => item.id === messageId)) throw new Error("消息不存在");
+    if (!this.snapshotRef.current.nodes.some((item) => item.id === messageId)) throw new Error("消息不存在");
   }
 
   async *sendMessage(input: SendMessageInput): AsyncIterable<MessageEvent> {
     if (input.signal?.aborted) throw new DOMException("消息请求已取消", "AbortError");
-    const history = conversationHistory(this.getSnapshot(), input);
+    const history = conversationHistory(this.snapshotRef.current, input);
     const queue = new AsyncEventQueue<ProviderStreamEvent>();
     const channel = new Channel<ProviderStreamEvent>((event) => queue.push(event));
     const invocation = invoke<CompleteMessageResponse>("complete_message", {
@@ -171,10 +176,15 @@ export class TauriConversationService implements ConversationService {
         history,
       },
       onEvent: channel,
-    }).then((response) => { queue.close(); return response; }).catch((error) => {
-      queue.fail(error);
-      throw error;
-    });
+    })
+      .then((response) => {
+        queue.close();
+        return response;
+      })
+      .catch((error) => {
+        queue.fail(error);
+        throw error;
+      });
 
     let receivedEvent = false;
     let failedEvent = false;
@@ -248,7 +258,7 @@ export class TauriConversationService implements ConversationService {
   }
 
   async getContext(timelineId: string): Promise<ContextSnapshot> {
-    const snapshot = this.getSnapshot();
+    const snapshot = this.snapshotRef.current;
     const timeline = getTimeline(snapshot, timelineId);
     const nodes = getTimelineNodes(snapshot, timelineId).filter((node) => !isFocusedInquiry(node));
     return {

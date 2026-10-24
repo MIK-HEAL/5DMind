@@ -1,118 +1,21 @@
-import { AlertTriangle, Check, ChevronDown, Copy, GitBranch, Layers2, Link2, MapPin, Merge, Pencil, Quote, Trash2 } from "lucide-react";
-import Markdown, { type Components } from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import rehypeSanitize from "rehype-sanitize";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import { Children, isValidElement, useEffect, useState, type ComponentPropsWithoutRef, type FormEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
-import "katex/dist/katex.min.css";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  Copy,
+  GitBranch,
+  Layers2,
+  Link2,
+  MapPin,
+  Merge,
+  Pencil,
+  Quote,
+  Trash2,
+} from "lucide-react";
+import { useState, type FormEvent, type MouseEvent, type PointerEvent } from "react";
 import type { ConversationNode, Threat, Timeline } from "../../domain/types";
 import { useSettings } from "../../state/SettingsProvider";
-
-function textContent(node: ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(textContent).join("");
-  if (isValidElement<{ children?: ReactNode }>(node)) return textContent(node.props.children);
-  return "";
-}
-
-function splitReasoning(content: string) {
-  let reasoning = "";
-  const answer = content.replace(/<(?:think|thinking|thought)>[\s\S]*?(?:<\/(?:think|thinking|thought)>|$)/gi, (block) => {
-    reasoning += block.replace(/^<(?:think|thinking|thought)>/i, "").replace(/<\/(?:think|thinking|thought)>$/i, "");
-    return "";
-  });
-  return { reasoning: reasoning.trim(), answer: answer.trim() };
-}
-
-// Models often emit LaTeX display delimiters as `\[`/`\]`. Markdown treats
-// those backslashes as escapes before remark-math sees them, so normalize both
-// forms to the $$ syntax understood by remark-math. Standalone bracket lines
-// are included for older messages that already lost the backslashes.
-function normalizeMathDelimiters(content: string) {
-  const lines = content.split(/\r?\n/);
-  let inDisplay = false;
-  const normalized: string[] = [];
-  for (const line of lines) {
-    const marker = line.trim();
-    if (!inDisplay && (marker === "\\[" || marker === "[")) {
-      normalized.push("$$");
-      inDisplay = true;
-    } else if (inDisplay && (marker === "\\]" || marker === "]")) {
-      normalized.push("$$");
-      inDisplay = false;
-    } else {
-      normalized.push(line);
-    }
-  }
-  return normalized.join("\n").replace(/\\\(([^\n]+?)\\\)/g, "$$$1$$");
-}
-
-function ReasoningBlock({ content, streaming }: { content: string; streaming: boolean }) {
-  const [open, setOpen] = useState(streaming);
-  useEffect(() => {
-    if (streaming) setOpen(true);
-  }, [streaming]);
-  return (
-    <section className={`message-reasoning ${open ? "is-open" : ""}`}>
-      <button type="button" className="message-reasoning-toggle" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-        <span className="message-reasoning-mark" aria-hidden="true">✦</span>
-        <span className="message-reasoning-label">{streaming ? "正在思考" : "思考过程"}</span>
-        <span className="message-reasoning-meta">{streaming ? "实时生成" : `${content.length} 字`}</span>
-        <ChevronDown size={14} />
-      </button>
-      {open && <div className="message-reasoning-content"><Markdown remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]} rehypePlugins={[rehypeSanitize, rehypeKatex]} components={markdownComponents}>{normalizeMathDelimiters(content)}</Markdown></div>}
-    </section>
-  );
-}
-
-function MarkdownCodeBlock({ children, ...props }: ComponentPropsWithoutRef<"pre">) {
-  const [copied, setCopied] = useState(false);
-  const code = Children.toArray(children)[0];
-  const className = isValidElement<{ className?: string }>(code) ? code.props.className : undefined;
-  const language = className?.match(/language-([\w-]+)/)?.[1] ?? "代码";
-  const value = textContent(isValidElement<{ children?: ReactNode }>(code) ? code.props.children : children);
-
-  const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  return (
-    <div className="markdown-code-shell">
-      <div className="markdown-code-toolbar">
-        <span className="markdown-code-language">{language}</span>
-        <button type="button" className="markdown-code-copy" onClick={(event) => { event.stopPropagation(); void copyCode(); }} aria-label={copied ? "代码已复制" : "复制代码"}>
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-          <span>{copied ? "已复制" : "复制"}</span>
-        </button>
-      </div>
-      <pre {...props} className="markdown-code-block">{children}</pre>
-    </div>
-  );
-}
-
-const markdownComponents: Components = {
-  a: ({ node: _node, href, children, ...props }) => (
-    <a {...props} href={href} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
-      {children}
-    </a>
-  ),
-  pre: ({ node: _node, ...props }) => <MarkdownCodeBlock {...props} />,
-  code: ({ node: _node, className, children, ...props }) => (
-    <code {...props} className={className ? `markdown-code ${className}` : "markdown-code-inline"}>
-      {children}
-    </code>
-  ),
-  table: ({ node: _node, children, ...props }) => <div className="markdown-table-wrap"><table {...props}>{children}</table></div>,
-  img: ({ node: _node, alt, ...props }) => <img {...props} alt={alt ?? "Markdown 图片"} loading="lazy" decoding="async" className="markdown-image" />,
-};
+import { MessageMarkdown, ReasoningBlock, splitNodeContent } from "./MessageMarkdown";
 
 interface MessageCardProps {
   node: ConversationNode;
@@ -132,8 +35,20 @@ interface MessageCardProps {
 }
 
 export function MessageCard({
-  node, nodeTimeline, currentTimelineId, selected, threats, onSelect, onFork, onThreat, onReference,
-  onEdit, onDelete, inquiries, onSelectText, onOpenInquiry,
+  node,
+  nodeTimeline,
+  currentTimelineId,
+  selected,
+  threats,
+  onSelect,
+  onFork,
+  onThreat,
+  onReference,
+  onEdit,
+  onDelete,
+  inquiries,
+  onSelectText,
+  onOpenInquiry,
 }: MessageCardProps) {
   const { preferences } = useSettings();
   const [copied, setCopied] = useState(false);
@@ -144,12 +59,19 @@ export function MessageCard({
   const [editError, setEditError] = useState<string>();
   const inherited = node.timelineId !== currentTimelineId;
   const openThreats = threats.filter((threat) => threat.status === "open");
-  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(node.createdAt));
-  const role = node.kind === "user" ? node.metadata.author ?? "你" : node.kind === "reference" ? "跨盘引用" : node.kind === "merge" ? "合并摘要" : node.metadata.author ?? "5D 助手";
+  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(
+    new Date(node.createdAt),
+  );
+  const role =
+    node.kind === "user"
+      ? (node.metadata.author ?? "你")
+      : node.kind === "reference"
+        ? "跨盘引用"
+        : node.kind === "merge"
+          ? "合并摘要"
+          : (node.metadata.author ?? "5D 助手");
   const isUser = node.kind === "user";
-  const split = splitReasoning(node.content);
-  const reasoning = [node.metadata.reasoning, split.reasoning].filter(Boolean).join("\n\n").trim();
-  const answer = split.answer;
+  const { reasoning, answer } = splitNodeContent(node);
 
   const copyMessage = async () => {
     try {
@@ -178,13 +100,82 @@ export function MessageCard({
 
   const actionBar = (
     <div className="message-actions" aria-label="消息操作">
-      <button title={copied ? "已复制" : "复制消息"} aria-label={copied ? "已复制" : "复制消息"} onClick={(event) => { event.stopPropagation(); void copyMessage(); }}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
-      <button title="在地图中定位" aria-label="在地图中定位" onClick={(event) => { event.stopPropagation(); onSelect(); }}><MapPin size={15} /></button>
-      <button title="引用到当前线" aria-label="引用到当前线" onClick={(event) => { event.stopPropagation(); onReference(); }}><Link2 size={15} /></button>
-      <button title="从此处分支" aria-label="从此处分支" onClick={(event) => { event.stopPropagation(); onFork(); }}><GitBranch size={15} /></button>
-      <button title="标记风险" aria-label="标记风险" onClick={(event) => { event.stopPropagation(); onThreat(); }}><AlertTriangle size={15} /></button>
-      {isUser && !inherited && <button title="编辑消息" aria-label="编辑消息" onClick={(event) => { event.stopPropagation(); setEditDraft(node.content); setEditing(true); }}><Pencil size={15} /></button>}
-      {!inherited && node.status !== "streaming" && <button className="message-action-danger" title="删除消息" aria-label="删除消息" onClick={(event) => { event.stopPropagation(); onDelete(); }}><Trash2 size={15} /></button>}
+      <button
+        title={copied ? "已复制" : "复制消息"}
+        aria-label={copied ? "已复制" : "复制消息"}
+        onClick={(event) => {
+          event.stopPropagation();
+          void copyMessage();
+        }}
+      >
+        {copied ? <Check size={15} /> : <Copy size={15} />}
+      </button>
+      <button
+        title="在地图中定位"
+        aria-label="在地图中定位"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
+      >
+        <MapPin size={15} />
+      </button>
+      <button
+        title="引用到当前线"
+        aria-label="引用到当前线"
+        onClick={(event) => {
+          event.stopPropagation();
+          onReference();
+        }}
+      >
+        <Link2 size={15} />
+      </button>
+      <button
+        title="从此处分支"
+        aria-label="从此处分支"
+        onClick={(event) => {
+          event.stopPropagation();
+          onFork();
+        }}
+      >
+        <GitBranch size={15} />
+      </button>
+      <button
+        title="标记风险"
+        aria-label="标记风险"
+        onClick={(event) => {
+          event.stopPropagation();
+          onThreat();
+        }}
+      >
+        <AlertTriangle size={15} />
+      </button>
+      {isUser && !inherited && (
+        <button
+          title="编辑消息"
+          aria-label="编辑消息"
+          onClick={(event) => {
+            event.stopPropagation();
+            setEditDraft(node.content);
+            setEditing(true);
+          }}
+        >
+          <Pencil size={15} />
+        </button>
+      )}
+      {!inherited && node.status !== "streaming" && (
+        <button
+          className="message-action-danger"
+          title="删除消息"
+          aria-label="删除消息"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+        >
+          <Trash2 size={15} />
+        </button>
+      )}
     </div>
   );
 
@@ -210,13 +201,23 @@ export function MessageCard({
           </div>
         </header>
         {node.kind === "reference" && (
-          <div className="reference-source"><Link2 size={14} />来自 {node.metadata.boardName ?? "另一个盘面"}</div>
+          <div className="reference-source">
+            <Link2 size={14} />
+            来自 {node.metadata.boardName ?? "另一个盘面"}
+          </div>
         )}
         {node.kind === "merge" && (
-          <div className="merge-source"><Merge size={14} />保留 {node.sourceNodeIds?.length ?? 0} 个来源节点</div>
+          <div className="merge-source">
+            <Merge size={14} />
+            保留 {node.sourceNodeIds?.length ?? 0} 个来源节点
+          </div>
         )}
         {editing ? (
-          <form className="message-edit-form" onSubmit={(event) => void submitEdit(event)} onClick={(event) => event.stopPropagation()}>
+          <form
+            className="message-edit-form"
+            onSubmit={(event) => void submitEdit(event)}
+            onClick={(event) => event.stopPropagation()}
+          >
             <textarea
               autoFocus
               value={editDraft}
@@ -229,18 +230,29 @@ export function MessageCard({
               }}
               rows={Math.min(8, Math.max(3, editDraft.split(/\r?\n/).length))}
             />
-            <footer><span className={editError ? "message-edit-error" : undefined}>{editError ?? "Enter 保存 · Shift+Enter 换行"}</span><button type="button" onClick={() => { setEditDraft(node.content); setEditError(undefined); setEditing(false); }}>取消</button><button className="primary" disabled={editSaving || !editDraft.trim()}>{editSaving ? "保存中" : "保存"}</button></footer>
+            <footer>
+              <span className={editError ? "message-edit-error" : undefined}>
+                {editError ?? "Enter 保存 · Shift+Enter 换行"}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditDraft(node.content);
+                  setEditError(undefined);
+                  setEditing(false);
+                }}
+              >
+                取消
+              </button>
+              <button className="primary" disabled={editSaving || !editDraft.trim()}>
+                {editSaving ? "保存中" : "保存"}
+              </button>
+            </footer>
           </form>
         ) : (
           <div className="message-content" onMouseUp={onSelectText} onPointerUp={onSelectText}>
             {reasoning && <ReasoningBlock content={reasoning} streaming={node.status === "streaming"} />}
-            <Markdown
-              remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
-              rehypePlugins={[rehypeSanitize, rehypeKatex]}
-              components={markdownComponents}
-            >
-              {normalizeMathDelimiters(answer)}
-            </Markdown>
+            <MessageMarkdown>{answer}</MessageMarkdown>
             {node.status === "streaming" && <span className="typing-caret" />}
           </div>
         )}
@@ -248,27 +260,43 @@ export function MessageCard({
           <div className="message-threats">
             {threats.map((threat) => (
               <span key={threat.id} className={`${threat.severity} ${threat.status}`}>
-                <AlertTriangle size={13} />{threat.title}{threat.status === "resolved" ? " · 已解决" : ""}
+                <AlertTriangle size={13} />
+                {threat.title}
+                {threat.status === "resolved" ? " · 已解决" : ""}
               </span>
             ))}
           </div>
         )}
         {openThreats.length === 0 && node.metadata.tags?.length ? (
-          <div className="message-tags">{node.metadata.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+          <div className="message-tags">
+            {node.metadata.tags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
         ) : null}
-        {!editing && <footer className="message-footer">
-          {isUser && preferences.showTimestamps && <span>{time}</span>}
-          {actionBar}
-        </footer>}
+        {!editing && (
+          <footer className="message-footer">
+            {isUser && preferences.showTimestamps && <span>{time}</span>}
+            {actionBar}
+          </footer>
+        )}
         {inquiries.length > 0 && (
           <div className={`inquiry-stack ${inquiriesOpen ? "is-open" : ""}`}>
             <button
               className="inquiry-stack-toggle"
-              onClick={(event) => { event.stopPropagation(); setInquiriesOpen((open) => !open); }}
+              onClick={(event) => {
+                event.stopPropagation();
+                setInquiriesOpen((open) => !open);
+              }}
               aria-expanded={inquiriesOpen}
             >
-              <span className="inquiry-stack-icon"><Layers2 size={14} /></span>
-              <span><strong>{inquiries.length} 个选区追问</strong><small>围绕这条消息继续探索</small></span>
+              <span className="inquiry-stack-icon">
+                <Layers2 size={14} />
+              </span>
+              <span>
+                <strong>{inquiries.length} 个选区追问</strong>
+                <small>围绕这条消息继续探索</small>
+              </span>
               <ChevronDown size={14} />
             </button>
             {inquiriesOpen && (
@@ -277,10 +305,16 @@ export function MessageCard({
                   <button
                     key={inquiry.id}
                     className="inquiry-stack-item"
-                    onClick={(event) => { event.stopPropagation(); onOpenInquiry(inquiry.id); }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenInquiry(inquiry.id);
+                    }}
                   >
                     <span className="inquiry-stack-index">{index + 1}</span>
-                    <span><strong>{inquiry.summary}</strong><small>{inquiry.focusSelection?.text ?? "已保存选区"}</small></span>
+                    <span>
+                      <strong>{inquiry.summary}</strong>
+                      <small>{inquiry.focusSelection?.text ?? "已保存选区"}</small>
+                    </span>
                     <MapPin size={13} />
                   </button>
                 ))}

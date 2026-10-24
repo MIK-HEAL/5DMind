@@ -24,7 +24,10 @@ interface GitHubRelease {
 }
 
 function parseVersion(value: string) {
-  const match = value.trim().replace(/^v/i, "").match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  const match = value
+    .trim()
+    .replace(/^v/i, "")
+    .match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
   if (!match) return undefined;
   return [Number(match[1]), Number(match[2]), Number(match[3])] as const;
 }
@@ -49,7 +52,7 @@ export async function checkForUpdates(fetcher: typeof fetch = fetch): Promise<Up
   }
   if (!response.ok) throw new Error(`更新服务返回 ${response.status}`);
 
-  const release = await response.json() as GitHubRelease;
+  const release = (await response.json()) as GitHubRelease;
   const latestVersion = typeof release.tag_name === "string" ? release.tag_name.replace(/^v/i, "") : "";
   const releaseUrl = typeof release.html_url === "string" ? release.html_url : undefined;
   if (!latestVersion || !parseVersion(latestVersion) || !releaseUrl) {

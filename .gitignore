@@ -5,3 +5,5 @@ src-tauri/target/
 *.log
 
 .reference/
+
+.workbuddy/

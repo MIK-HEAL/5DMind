@@ -6,7 +6,13 @@ export function isFocusedInquiry(node: ConversationNode) {
 
 export function getFocusedInquiryRoots(snapshot: WorkspaceSnapshot, sourceNodeId: NodeId, timelineId?: TimelineId) {
   return snapshot.nodes
-    .filter((node) => node.kind === "user" && isFocusedInquiry(node) && node.focusSelection?.sourceNodeId === sourceNodeId && (!timelineId || node.timelineId === timelineId))
+    .filter(
+      (node) =>
+        node.kind === "user" &&
+        isFocusedInquiry(node) &&
+        node.focusSelection?.sourceNodeId === sourceNodeId &&
+        (!timelineId || node.timelineId === timelineId),
+    )
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
@@ -35,10 +41,7 @@ export function getTimeline(snapshot: WorkspaceSnapshot, timelineId: TimelineId)
   return timeline;
 }
 
-export function getOwnNodes(
-  snapshot: WorkspaceSnapshot,
-  timelineId: TimelineId,
-): ConversationNode[] {
+export function getOwnNodes(snapshot: WorkspaceSnapshot, timelineId: TimelineId): ConversationNode[] {
   return snapshot.nodes
     .filter((node) => node.timelineId === timelineId)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -68,10 +71,7 @@ export function getTimelineNodes(
   return [...inherited, ...ownNodes];
 }
 
-export function getConversationTimelines(
-  snapshot: WorkspaceSnapshot,
-  conversationId: string,
-): Timeline[] {
+export function getConversationTimelines(snapshot: WorkspaceSnapshot, conversationId: string): Timeline[] {
   return snapshot.timelines
     .filter((timeline) => timeline.conversationId === conversationId && timeline.status === "active")
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -86,5 +86,7 @@ export function getNodeThreats(snapshot: WorkspaceSnapshot, nodeId: string) {
 }
 
 export function getLastNode(snapshot: WorkspaceSnapshot, timelineId: string) {
-  return getTimelineNodes(snapshot, timelineId).filter((node) => !isFocusedInquiry(node)).at(-1);
+  return getTimelineNodes(snapshot, timelineId)
+    .filter((node) => !isFocusedInquiry(node))
+    .at(-1);
 }
