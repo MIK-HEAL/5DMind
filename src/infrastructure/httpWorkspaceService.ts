@@ -94,6 +94,36 @@ export class HttpWorkspaceService implements ConversationService, TimelineServic
     });
   }
 
+  async renameConversation(conversationId: string, title: string): Promise<Conversation> {
+    return this.request<Conversation>(`/conversations/${encodeURIComponent(conversationId)}`, {
+      method: "PATCH",
+      body: { title },
+      idempotent: true,
+    });
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    await this.request<void>(`/conversations/${encodeURIComponent(conversationId)}`, {
+      method: "DELETE",
+      idempotent: true,
+    });
+  }
+
+  async updateMessage(messageId: string, content: string): Promise<ConversationNode> {
+    return this.request<ConversationNode>(`/messages/${encodeURIComponent(messageId)}`, {
+      method: "PATCH",
+      body: { content },
+      idempotent: true,
+    });
+  }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    await this.request<void>(`/messages/${encodeURIComponent(messageId)}`, {
+      method: "DELETE",
+      idempotent: true,
+    });
+  }
+
   async *sendMessage(input: SendMessageInput): AsyncIterable<MessageEvent> {
     const response = await this.request<{
       turnId: string;
@@ -185,6 +215,7 @@ export class HttpWorkspaceService implements ConversationService, TimelineServic
       signal: options.signal,
     });
     if (!response.ok) throw new RemoteApiError(response.status, await this.readError(response));
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 

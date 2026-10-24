@@ -1,5 +1,5 @@
 import type { ConversationService, SendMessageInput } from "../domain/services";
-import type { ContextSnapshot, Conversation, MessageEvent, WorkspaceSnapshot } from "../domain/types";
+import type { ContextSnapshot, Conversation, ConversationNode, MessageEvent, WorkspaceSnapshot } from "../domain/types";
 import { getTimeline, getTimelineNodes, isFocusedInquiry } from "../domain/selectors";
 
 // TODO(5dmind-integration): Replace this explicit failure adapter with the local
@@ -30,6 +30,28 @@ export class UnavailableConversationService implements ConversationService {
       id: crypto.randomUUID(), title, summary: "新的对话工作区", color: "#206b5a",
       createdAt: now, updatedAt: now,
     };
+  }
+
+  async renameConversation(conversationId: string, title: string): Promise<Conversation> {
+    const conversation = this.getSnapshot().conversations.find((item) => item.id === conversationId);
+    if (!conversation) throw new Error("对话不存在");
+    return { ...conversation, title: title.trim(), updatedAt: new Date().toISOString() };
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    if (!this.getSnapshot().conversations.some((item) => item.id === conversationId)) throw new Error("对话不存在");
+  }
+
+  async updateMessage(messageId: string, content: string): Promise<ConversationNode> {
+    const node = this.getSnapshot().nodes.find((item) => item.id === messageId);
+    if (!node) throw new Error("消息不存在");
+    const clean = content.trim();
+    if (!clean) throw new Error("消息内容不能为空");
+    return { ...node, content: clean, summary: clean.replace(/\s+/g, " ").slice(0, 44) };
+  }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    if (!this.getSnapshot().nodes.some((item) => item.id === messageId)) throw new Error("消息不存在");
   }
 
   async *sendMessage(input: SendMessageInput): AsyncIterable<MessageEvent> {

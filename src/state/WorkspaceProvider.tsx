@@ -57,6 +57,10 @@ interface WorkspaceContextValue {
   createReference: (sourceNodeId: string) => Promise<void>;
   createMergeSummary: () => Promise<void>;
   createConversation: (title: string) => Promise<void>;
+  renameConversation: (conversationId: string, title: string) => Promise<void>;
+  deleteConversation: (conversationId: string) => Promise<void>;
+  updateMessage: (messageId: string, content: string) => Promise<void>;
+  deleteMessage: (messageId: string) => Promise<void>;
   resetWorkspace: () => Promise<void>;
   exportWorkspace: () => void;
 }
@@ -569,6 +573,99 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }, [compareIds, remoteService]);
 
+  const renameConversation = useCallback(async (conversationId: string, title: string) => {
+    const clean = title.trim();
+    if (!clean) return;
+    if (workspaceMode === "remote") {
+      const conversation = await remoteService.renameConversation(conversationId, clean);
+      setSnapshot((current) => ({
+        ...current,
+        conversations: current.conversations.map((item) => item.id === conversation.id ? conversation : item),
+      }));
+      return;
+    }
+    setSnapshot((current) => ({
+      ...current,
+      conversations: current.conversations.map((conversation) => conversation.id === conversationId
+        ? { ...conversation, title: clean, updatedAt: new Date().toISOString() }
+        : conversation),
+    }));
+  }, [remoteService]);
+
+  const deleteConversation = useCallback(async (conversationId: string) => {
+    if (snapshotRef.current.conversations.length <= 1) return;
+    if (workspaceMode === "remote") await remoteService.deleteConversation(conversationId);
+
+    setSnapshot((current) => {
+      if (current.conversations.length <= 1) return current;
+      const timelineIds = new Set(current.timelines.filter((timeline) => timeline.conversationId === conversationId).map((timeline) => timeline.id));
+      const nodeIds = new Set(current.nodes.filter((node) => timelineIds.has(node.timelineId)).map((node) => node.id));
+      const conversations = current.conversations.filter((conversation) => conversation.id !== conversationId);
+      const nextConversation = conversations.find((conversation) => conversation.id === current.currentConversationId) ?? conversations[0];
+      const nextTimeline = current.timelines.find((timeline) => timeline.conversationId === nextConversation.id && timeline.status === "active")
+        ?? current.timelines.find((timeline) => timeline.conversationId === nextConversation.id);
+      return {
+        ...current,
+        conversations,
+        timelines: current.timelines.filter((timeline) => !timelineIds.has(timeline.id)),
+        nodes: current.nodes.filter((node) => !nodeIds.has(node.id)),
+        threats: current.threats.filter((threat) => threat.conversationId !== conversationId),
+        references: current.references.filter((reference) => !nodeIds.has(reference.sourceNodeId) && !nodeIds.has(reference.targetNodeId)),
+        currentConversationId: nextConversation.id,
+        currentTimelineId: nextTimeline?.id ?? current.currentTimelineId,
+      };
+    });
+    setSelectedNodeId(undefined);
+    setFocusedInquiryId(undefined);
+    setFocusedInquiryIds([]);
+    setCompareIds([]);
+  }, [remoteService]);
+
+  const updateMessage = useCallback(async (messageId: string, content: string) => {
+    const clean = content.trim();
+    if (!clean) return;
+    const node = snapshotRef.current.nodes.find((item) => item.id === messageId);
+    if (!node) return;
+    if (node.kind !== "user" && node.kind !== "assistant") return;
+    const updated = workspaceMode === "remote"
+      ? await remoteService.updateMessage(messageId, clean)
+      : await conversationService.updateMessage(messageId, clean);
+    setSnapshot((current) => ({
+      ...current,
+      nodes: current.nodes.map((item) => item.id === messageId ? { ...item, ...updated } : item),
+    }));
+  }, [conversationService, remoteService]);
+
+  const deleteMessage = useCallback(async (messageId: string) => {
+    const root = snapshotRef.current.nodes.find((item) => item.id === messageId);
+    if (!root) return;
+    if (workspaceMode === "remote") await remoteService.deleteMessage(messageId);
+    else await conversationService.deleteMessage(messageId);
+
+    setSnapshot((current) => {
+      const removedIds = new Set([messageId]);
+      let expanded = true;
+      while (expanded) {
+        expanded = false;
+        for (const node of current.nodes) {
+          if (node.timelineId === root.timelineId && node.parentNodeId && removedIds.has(node.parentNodeId) && !removedIds.has(node.id)) {
+            removedIds.add(node.id);
+            expanded = true;
+          }
+        }
+      }
+      return {
+        ...current,
+        nodes: current.nodes.filter((node) => !removedIds.has(node.id)),
+        threats: current.threats.filter((threat) => !removedIds.has(threat.nodeId)),
+        references: current.references.filter((reference) => !removedIds.has(reference.sourceNodeId) && !removedIds.has(reference.targetNodeId)),
+      };
+    });
+    setSelectedNodeId(undefined);
+    setFocusedInquiryIds([]);
+    setFocusedInquiryId(undefined);
+  }, [conversationService, remoteService]);
+
   const createConversation = useCallback(async (title: string) => {
     const clean = title.trim();
     if (!clean) return;
@@ -643,7 +740,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     snapshot, hydrated, saveStatus, selectedNodeId, focusedInquiryId, focusedInquiryIds, mapOpen, mapPinned, compareIds,
     switchConversation, switchTimeline, selectNode, focusInquiry, openInquiry, closeInquiry, setMapOpen, setMapPinned, toggleCompare,
     sendMessage, createFocusedInquiry, forkFromNode, createThreat, resolveThreat, createReference, createMergeSummary,
-    createConversation, resetWorkspace, exportWorkspace,
+    createConversation, renameConversation, deleteConversation, updateMessage, deleteMessage, resetWorkspace, exportWorkspace,
   };
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

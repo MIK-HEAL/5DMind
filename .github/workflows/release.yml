@@ -70,6 +70,22 @@ jobs:
             throw "Tauri version $tauriVersion does not match tag $env:RELEASE_TAG"
           }
 
+          $cargoToml = Get-Content src-tauri/Cargo.toml -Raw
+          if ($cargoToml -notmatch '(?ms)^\[package\].*?^version\s*=\s*"([^"]+)"') {
+            throw "Could not read src-tauri/Cargo.toml package version"
+          }
+          if ($Matches[1] -ne $tagVersion) {
+            throw "Cargo.toml version $($Matches[1]) does not match tag $env:RELEASE_TAG"
+          }
+
+          $cargoLock = Get-Content src-tauri/Cargo.lock -Raw
+          if ($cargoLock -notmatch '(?m)^name\s*=\s*"five-d-mind"\r?\nversion\s*=\s*"([^"]+)"') {
+            throw "Could not read five-d-mind version from src-tauri/Cargo.lock"
+          }
+          if ($Matches[1] -ne $tagVersion) {
+            throw "Cargo.lock version $($Matches[1]) does not match tag $env:RELEASE_TAG"
+          }
+
       - name: Build Windows installers
         run: npm run build:desktop
 

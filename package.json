@@ -1,7 +1,7 @@
 {
   "name": "5dmind",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "workspaces": [
     "apps/api"
@@ -13,6 +13,7 @@
     "build": "npm run build:web",
     "build:web": "tsc -b && vite build",
     "build:desktop": "tauri build",
+    "version:set": "node scripts/set-version.mjs",
     "dev:api": "npm --workspace apps/api run dev",
     "build:api": "npm --workspace apps/api run build",
     "start:api": "npm --workspace apps/api run start",
