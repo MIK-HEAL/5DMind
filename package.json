@@ -1,0 +1,43 @@
+{
+  "name": "5dmind",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/api"
+  ],
+  "scripts": {
+    "dev": "vite --port 1420",
+    "dev:web": "vite --port 1420",
+    "dev:desktop": "tauri dev",
+    "build": "npm run build:web",
+    "build:web": "tsc -b && vite build",
+    "build:desktop": "tauri build",
+    "dev:api": "npm --workspace apps/api run dev",
+    "build:api": "npm --workspace apps/api run build",
+    "start:api": "npm --workspace apps/api run start",
+    "test:api": "npm --workspace apps/api run test",
+    "build:all": "npm run build:web && npm run build:api",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.0",
+    "lucide-react": "^1.48.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.0",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  }
+}

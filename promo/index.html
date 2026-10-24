@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>5DMind · 真实前端演示</title>
+  <style>
+    :root { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; color: #ecf2ff; background: #08101d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 50% 0%, #19365c 0, #08101d 55%); }
+    main { width: min(1440px, 100vw); padding: 20px; }
+    .header { display:flex; align-items:center; gap:16px; margin: 0 auto 12px; max-width: 1280px; }
+    .brand { font-size: 24px; font-weight: 800; }
+    .brand small { color:#86a6d7; font-size:12px; font-weight:500; margin-left:8px; }
+    .hint { margin-left:auto; color:#9db0ca; font-size:13px; }
+    .stage { position:relative; max-width:1280px; margin:auto; aspect-ratio:16/9; overflow:hidden; border:1px solid #355070; border-radius:10px; background:#f5f7fa; box-shadow:0 28px 80px #0009; }
+    iframe { display:block; width:100%; height:100%; border:0; background:#f5f7fa; }
+    .shade { position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg,#07111d22,#07111d00 25%,#07111d22); }
+    .callout { position:absolute; z-index:2; max-width:280px; padding:12px 14px; border:1px solid #6aa4ff; border-radius:8px; background:#10213be8; color:#f4f8ff; box-shadow:0 10px 34px #07111d88; opacity:0; transform:translateY(10px); transition:.35s ease; pointer-events:none; }
+    .callout.show { opacity:1; transform:translateY(0); }
+    .callout strong { display:block; font-size:14px; margin-bottom:4px; }
+    .callout span { display:block; color:#b5c7df; font-size:12px; line-height:1.5; }
+    #callout-branch { left: 34%; top: 22%; } #callout-map { right: 5%; top: 12%; }
+    .toolbar { display:flex; align-items:center; gap:9px; max-width:1280px; margin:12px auto 0; }
+    button { border:1px solid #4d73a3; border-radius:6px; padding:9px 13px; color:#eff6ff; background:#142944; cursor:pointer; font:inherit; }
+    button:hover, button.active { background:#2c6ed2; border-color:#8bb8ff; }
+    button.secondary { background:#101b2a; border-color:#30435e; }
+    #status { margin-left:auto; color:#9db0ca; font-size:12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="header"><div class="brand">5DMind <small>真实前端交互演示</small></div><div class="hint">下面的操作直接作用于项目现有界面</div></div>
+    <section class="stage">
+      <iframe id="app" title="5DMind 真实前端界面" src="../"></iframe>
+      <div class="shade"></div>
+      <div class="callout" id="callout-branch"><strong>从消息节点创建分支</strong><span>直接使用真实消息卡片上的“从此处分支”操作。</span></div>
+      <div class="callout" id="callout-map"><strong>打开时间线地图</strong><span>真实前端的地图抽屉会展开并呈现分支关系。</span></div>
+    </section>
+    <div class="toolbar">
+      <button data-action="auto">▶ 自动播放</button>
+      <button data-action="branch">↗ 创建真实分支</button>
+      <button data-action="map">⌘ 打开真实地图</button>
+      <button data-action="reset" class="secondary">↻ 重置演示</button>
+      <span id="status">正在展示项目现有前端</span>
+    </div>
+  </main>
+  <script>
+    const frame = document.querySelector('#app');
+    const status = document.querySelector('#status');
+    const callouts = { branch: document.querySelector('#callout-branch'), map: document.querySelector('#callout-map') };
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const doc = () => frame.contentDocument;
+    const buttons = label => [...doc().querySelectorAll('button')].filter(button => [button.textContent, button.getAttribute('aria-label'), button.getAttribute('title')].some(value => (value || '').includes(label)));
+    function show(kind, message) { Object.values(callouts).forEach(item => item.classList.remove('show')); if (kind) callouts[kind].classList.add('show'); status.textContent = message; }
+    async function realBranch() {
+      show('branch', '正在调用真实消息卡片的分支操作…');
+      const targets = buttons('从此处分支');
+      (targets[0] || buttons('时间线地图')[0])?.click();
+      await sleep(500);
+      show('branch', '真实分支面板已打开，可填写分支名称和上下文范围');
+    }
+    async function realMap() {
+      show('map', '正在打开项目现有的时间线地图…');
+      const target = buttons('时间线地图')[0] || buttons('查看时间线地图')[0];
+      target?.click();
+      await sleep(700);
+      show('map', '真实时间线地图已展开');
+    }
+    async function autoDemo() {
+      document.querySelector('[data-action="auto"]').classList.add('active');
+      show(null, '自动演示开始：加载真实工作区…');
+      await sleep(900);
+      await realBranch();
+      await sleep(1300);
+      const create = buttons('创建并切换')[0];
+      if (create) { create.click(); await sleep(1100); }
+      await realMap();
+      await sleep(1600);
+      show('map', '自动演示完成：真实前端已完成“分支 → 地图”流程');
+      document.querySelector('[data-action="auto"]').classList.remove('active');
+    }
+    function reset() { frame.contentWindow.location.reload(); show(null, '正在重新加载项目现有前端…'); setTimeout(() => { status.textContent = '正在展示项目现有前端'; }, 900); }
+    document.querySelector('[data-action="branch"]').onclick = realBranch;
+    document.querySelector('[data-action="map"]').onclick = realMap;
+    document.querySelector('[data-action="auto"]').onclick = autoDemo;
+    document.querySelector('[data-action="reset"]').onclick = reset;
+    frame.addEventListener('load', () => { status.textContent = '真实前端已加载'; window.setTimeout(autoDemo, 1200); });
+  </script>
+</body>
+</html>
