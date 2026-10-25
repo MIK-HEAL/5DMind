@@ -88,6 +88,9 @@ function makeId(prefix: string) {
 }
 
 function describeSendError(error: unknown): string {
+  if (error instanceof TypeError) {
+    return "错误码 API_UNREACHABLE · 不可重试：无法连接 API 服务，请确认后端服务已启动（若是 Docker 部署，请检查容器是否在运行）";
+  }
   const candidate = error as { message?: string; code?: string; status?: number; requestId?: string; retryable?: boolean };
   const code = candidate.code ?? (error instanceof DOMException && error.name === "AbortError" ? "REQUEST_ABORTED" : "MODEL_GATEWAY_ERROR");
   const message = candidate.message ?? "模型服务未返回可用结果";

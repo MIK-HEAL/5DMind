@@ -29,7 +29,11 @@ export class RemoteApiError extends Error {
   readonly retryable?: boolean;
 
   constructor(status: number, body?: ApiErrorBody) {
-    super(body?.error?.message ?? `请求失败（HTTP ${status}）`);
+    super(
+      status === 413
+        ? "附件内容过大（HTTP 413），请减少附件大小或数量后重试"
+        : body?.error?.message ?? `请求失败（HTTP ${status}）`,
+    );
     this.name = "RemoteApiError";
     this.status = status;
     this.code = body?.error?.code;
