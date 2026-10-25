@@ -1,15 +1,16 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
+import { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cors from "@fastify/cors";
 import { AppModule } from "./app.module.js";
 import { RequestIdInterceptor } from "./shared/http/request-id.interceptor.js";
+import { createAppFastifyAdapter } from "./shared/http/server-options.js";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: process.env.NODE_ENV !== "test" }),
+    createAppFastifyAdapter(),
   );
 
   app.setGlobalPrefix("api/v1");
