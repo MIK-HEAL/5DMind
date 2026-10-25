@@ -58,6 +58,23 @@ pub(crate) fn load_workspace(state: State<'_, AppState>) -> Result<Option<Value>
         .transpose()
 }
 
+pub(crate) fn load_workspace_value(state: &AppState) -> Result<Option<Value>, String> {
+    let database = state
+        .database
+        .lock()
+        .map_err(|_| "数据库锁已损坏".to_string())?;
+    let mut statement = database
+        .prepare("SELECT payload FROM workspace_snapshots WHERE snapshot_key = 'active'")
+        .map_err(|error| error.to_string())?;
+    let payload = statement
+        .query_row([], |row| row.get::<_, String>(0))
+        .optional()
+        .map_err(|error| error.to_string())?;
+    payload
+        .map(|value| serde_json::from_str(&value).map_err(|error| error.to_string()))
+        .transpose()
+}
+
 #[tauri::command]
 pub(crate) fn save_workspace(snapshot: Value, state: State<'_, AppState>) -> Result<(), String> {
     let version = snapshot
@@ -65,6 +82,28 @@ pub(crate) fn save_workspace(snapshot: Value, state: State<'_, AppState>) -> Res
         .and_then(Value::as_i64)
         .ok_or_else(|| "工作区缺少有效版本号".to_string())?;
     let payload = serde_json::to_string(&snapshot).map_err(|error| error.to_string())?;
+    let database = state
+        .database
+        .lock()
+        .map_err(|_| "数据库锁已损坏".to_string())?;
+    database
+        .execute(
+            "INSERT INTO workspace_snapshots(snapshot_key, version, payload, updated_at)\
+             VALUES ('active', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))\
+             ON CONFLICT(snapshot_key) DO UPDATE SET version = excluded.version,\
+             payload = excluded.payload, updated_at = excluded.updated_at",
+            params![version, payload],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn save_workspace_value(snapshot: &Value, state: &AppState) -> Result<(), String> {
+    let version = snapshot
+        .get("version")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| "工作区缺少有效版本号".to_string())?;
+    let payload = serde_json::to_string(snapshot).map_err(|error| error.to_string())?;
     let database = state
         .database
         .lock()

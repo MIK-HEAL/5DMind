@@ -53,6 +53,9 @@ export interface ConversationNode {
   metadata: {
     model?: string;
     author?: string;
+    agentId?: string;
+    agentColor?: string;
+    opinionGroupId?: string;
     boardName?: string;
     reasoning?: string;
     tags?: string[];

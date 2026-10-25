@@ -282,6 +282,9 @@ export interface MessageEventContext {
   relation?: ConversationNode["relation"];
   inquiryRootId?: string;
   tags?: string[];
+  agentId?: string;
+  agentColor?: string;
+  opinionGroupId?: string;
   completedSummary: string;
 }
 
@@ -302,6 +305,9 @@ export function applyMessageEvent(
           ...event.message.metadata,
           author: context.author,
           model: event.message.metadata.model ?? context.model,
+          ...(context.agentId ? { agentId: context.agentId } : {}),
+          ...(context.agentColor ? { agentColor: context.agentColor } : {}),
+          ...(context.opinionGroupId ? { opinionGroupId: context.opinionGroupId } : {}),
           ...(context.tags ? { tags: [...(event.message.metadata.tags ?? []), ...context.tags] } : {}),
         },
       };

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ContextMode, ConversationNode, FocusSelection, Threat, WorkspaceSnapshot } from "../domain/types";
 import type { ConversationService } from "../domain/services";
-import type { ReasoningEffort } from "../domain/settings";
+import type { AgentProfile, ReasoningEffort } from "../domain/settings";
 import type { MessageAttachment } from "../domain/attachments";
 import { attachmentMetadata } from "../domain/attachments";
 import { getLastNode, getNode } from "../domain/selectors";
@@ -57,6 +57,7 @@ interface WorkspaceContextValue {
     content: string,
     options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string; attachments?: MessageAttachment[] },
   ) => Promise<void>;
+  generateAgentOpinions: (sourceNodeId: string, agentIds: string[]) => Promise<void>;
   createFocusedInquiry: (
     sourceNodeId: string,
     selection: FocusSelection,
@@ -214,11 +215,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setCompareIds((current) => toggleCompareId(current, timelineId));
   }, []);
 
+  const authorizeTimelineTool = useCallback(
+    (operation: string) => {
+      if (!activeAgent.tools.timeline || activeAgent.permissionMode === "read-only") {
+        throw new Error("当前 Agent 没有写入时间线的权限");
+      }
+      if (activeAgent.permissionMode === "ask" && !window.confirm(`Agent 请求${operation}，确认后才会写入时间线。`)) {
+        throw new Error("已取消时间线操作");
+      }
+    },
+    [activeAgent],
+  );
+
   const sendMessageOnTimeline = useCallback(
     async (
       content: string,
       options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string; attachments?: MessageAttachment[] },
-      target?: { timelineId?: string; parentNodeId?: string; reuseUserNodeId?: string },
+      target?: { timelineId?: string; parentNodeId?: string; reuseUserNodeId?: string; agentId?: string; opinionGroupId?: string },
     ) => {
       const clean = content.trim();
       if (!clean) return;
@@ -226,6 +239,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString();
       const userId = makeId("node");
       if (options?.attachments?.length) attachmentPayloadsRef.current.set(userId, options.attachments);
+      const respondingAgent: AgentProfile = target?.agentId
+        ? preferences.agents.find((agent) => agent.id === target.agentId) ?? activeAgent
+        : activeAgent;
+      const respondingProvider = preferences.providers.find((provider) => provider.id === respondingAgent.providerId);
       const parentNodeId = target?.parentNodeId ?? getLastNode(snapshotRef.current, timelineId)?.id;
       const userNode: ConversationNode = {
         id: userId,
@@ -260,8 +277,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       const eventContext = {
         parentNodeId: displayUserId,
-        author: activeAgent.name,
-        model: activeAgent.modelId,
+        author: respondingAgent.name,
+        model: respondingAgent.modelId,
+        agentId: respondingAgent.id,
+        agentColor: respondingAgent.color,
+        opinionGroupId: target?.opinionGroupId,
         completedSummary: workspaceMode === "remote" ? "云端回复" : "本地回复",
       } as const;
       try {
@@ -271,17 +291,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           clientMessageId: userId,
           replaceMessageId: target?.reuseUserNodeId,
           parentNodeId,
-          model: activeAgent.modelId || undefined,
-          providerId: activeProvider?.id,
-          providerType: activeProvider?.type,
-          baseUrl: activeProvider?.baseUrl,
-          apiPath: activeProvider?.apiPath,
-          requestTimeoutMs: activeProvider?.requestTimeoutMs,
-          instructions: options?.instructions?.trim() || activeAgent.instructions,
-          temperature: activeAgent.temperature,
-          reasoningEffort: options?.reasoningEffort ?? activeAgent.reasoningEffort ?? "default",
-          webSearch: options?.webSearch ?? activeAgent.tools.webSearch,
-          attachments: activeAgent.tools.files ? options?.attachments : undefined,
+          model: respondingAgent.modelId || undefined,
+          providerId: respondingProvider?.id,
+          providerType: respondingProvider?.type,
+          baseUrl: respondingProvider?.baseUrl,
+          apiPath: respondingProvider?.apiPath,
+          requestTimeoutMs: respondingProvider?.requestTimeoutMs,
+          instructions: options?.instructions?.trim() || respondingAgent.instructions,
+          temperature: respondingAgent.temperature,
+          reasoningEffort: options?.reasoningEffort ?? respondingAgent.reasoningEffort ?? "default",
+          webSearch: options?.webSearch ?? respondingAgent.tools.webSearch,
+          attachments: respondingAgent.tools.files ? options?.attachments : undefined,
         })) {
           setSnapshot((current) => applyMessageEvent(current, event, eventContext));
           if (event.type === "message.started") setSelectedNodeId(event.message.id);
@@ -298,8 +318,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               timelineId,
               parentNodeId: displayUserId,
               detail,
-              author: activeAgent.name,
-              model: activeAgent.modelId || undefined,
+              author: respondingAgent.name,
+              model: respondingAgent.modelId || undefined,
               now: new Date().toISOString(),
             }),
           ],
@@ -307,13 +327,57 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setSelectedNodeId(failedId);
       }
     },
-    [activeAgent, activeProvider, conversationService, preferences.profileName],
+    [activeAgent, conversationService, preferences.agents, preferences.profileName, preferences.providers],
   );
 
   const sendMessage = useCallback(
     (content: string, options?: { reasoningEffort?: ReasoningEffort; webSearch?: boolean; instructions?: string; attachments?: MessageAttachment[] }) =>
       sendMessageOnTimeline(content, options),
     [sendMessageOnTimeline],
+  );
+
+  const generateAgentOpinions = useCallback(
+    async (sourceNodeId: string, agentIds: string[]) => {
+      const source = snapshotRef.current.nodes.find((node) => node.id === sourceNodeId);
+      const timelineId = snapshotRef.current.currentTimelineId;
+      const selectedAgents = agentIds
+        .map((id) => preferences.agents.find((agent) => agent.id === id))
+        .filter((agent): agent is AgentProfile => Boolean(agent))
+        .slice(0, 2);
+      if (!source || !selectedAgents.length) return;
+      const existingReview = snapshotRef.current.nodes.find(
+        (node) => node.kind === "user" && node.parentNodeId === source.id && node.metadata.tags?.includes("意见对比"),
+      );
+      const opinionGroupId = existingReview?.metadata.opinionGroupId ?? makeId("opinions");
+      const reviewNodeId = existingReview?.id ?? makeId("node");
+      const now = new Date().toISOString();
+      if (!existingReview) {
+        const reviewNode: ConversationNode = {
+          id: reviewNodeId,
+          timelineId,
+          parentNodeId: source.id,
+          kind: "user",
+          content: `多 Agent 复审：${source.summary}`,
+          summary: `多 Agent 复审：${source.summary}`.slice(0, 44),
+          status: "complete",
+          createdAt: now,
+          metadata: { author: preferences.profileName.trim() || "你", tags: ["意见对比"], opinionGroupId },
+        };
+        setSnapshot((current) => ({ ...current, nodes: [...current.nodes, reviewNode] }));
+      }
+      setSelectedNodeId(reviewNodeId);
+      const prompt = `请从你的专业视角重审以下结论，明确指出支持证据、主要疑点和下一步行动：\n\n${source.content}`;
+      for (const agent of selectedAgents) {
+        await sendMessageOnTimeline(prompt, { instructions: agent.instructions, webSearch: agent.tools.webSearch }, {
+          timelineId,
+          parentNodeId: source.id,
+          reuseUserNodeId: reviewNodeId,
+          agentId: agent.id,
+          opinionGroupId,
+        });
+      }
+    },
+    [preferences.agents, preferences.profileName, sendMessageOnTimeline],
   );
 
   const createFocusedInquiry = useCallback(
@@ -412,6 +476,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const forkFromNode = useCallback(
     async (nodeId: string, name: string, contextMode: ContextMode) => {
+      authorizeTimelineTool("创建时间线分支");
       if (workspaceMode === "remote") {
         const timeline = await remoteService.forkFromMessage(nodeId, name, contextMode);
         setSnapshot((current) => ({
@@ -431,11 +496,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setMapOpen(true);
       return timelineId;
     },
-    [remoteService],
+    [authorizeTimelineTool, remoteService],
   );
 
   const createThreat = useCallback(
     async (nodeId: string, title: string, detail: string, severity: Threat["severity"]) => {
+      authorizeTimelineTool("创建风险标记");
       if (workspaceMode === "remote") {
         const threat = await remoteService.createThreat({
           conversationId: snapshotRef.current.currentConversationId,
@@ -461,7 +527,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setSnapshot((current) => appendThreat(current, threat));
       setSelectedNodeId(nodeId);
     },
-    [remoteService],
+    [authorizeTimelineTool, remoteService],
   );
 
   const resolveThreat = useCallback(
@@ -485,6 +551,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const createReference = useCallback(
     async (sourceNodeId: string) => {
+      authorizeTimelineTool("创建跨线引用");
       if (workspaceMode === "remote") {
         const result = await remoteService.createReference({
           sourceNodeId,
@@ -508,7 +575,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }),
       );
     },
-    [remoteService],
+    [authorizeTimelineTool, remoteService],
   );
 
   const createMergeSummary = useCallback(async () => {
@@ -716,6 +783,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setMapPinned,
     toggleCompare,
     sendMessage,
+    generateAgentOpinions,
     createFocusedInquiry,
     forkFromNode,
     createThreat,

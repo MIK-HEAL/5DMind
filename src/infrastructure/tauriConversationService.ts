@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { ConversationService, ConversationTurn, SendMessageInput } from "../domain/services";
 import type { ContextSnapshot, Conversation, ConversationNode, MessageEvent, WorkspaceSnapshot } from "../domain/types";
+import { getConversationHistory } from "../domain/context";
 import { getTimeline, getTimelineNodes, isFocusedInquiry } from "../domain/selectors";
 
 interface CompleteMessageResponse {
@@ -70,45 +71,11 @@ class AsyncEventQueue<T> {
 
 const sleep = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
-const MAX_HISTORY_MESSAGES = 80;
-const MAX_HISTORY_CHARS = 120_000;
-
 function conversationHistory(snapshot: WorkspaceSnapshot, input: SendMessageInput): ConversationTurn[] {
-  const nodes = getTimelineNodes(snapshot, input.timelineId);
-  const turns = nodes
-    .filter((node) => !isFocusedInquiry(node))
-    .filter((node) => (node.kind === "user" || node.kind === "assistant") && node.status === "complete")
-    .filter((node) => node.content.trim())
-    .map((node) => ({ role: node.kind as "user" | "assistant", content: node.content.trim() }));
-
-  if (input.relation === "focused-inquiry" && input.inquiryRootId && input.parentNodeId) {
-    const nodesById = new Map(nodes.map((node) => [node.id, node]));
-    const inquiryPath: ConversationNode[] = [];
-    let current = nodesById.get(input.parentNodeId);
-    const visited = new Set<string>();
-    while (current && current.id !== input.inquiryRootId && !visited.has(current.id)) {
-      visited.add(current.id);
-      if (isFocusedInquiry(current)) inquiryPath.unshift(current);
-      current = current.parentNodeId ? nodesById.get(current.parentNodeId) : undefined;
-    }
-    if (current?.id === input.inquiryRootId) inquiryPath.unshift(current);
-    turns.push(
-      ...inquiryPath
-        .filter((node) => (node.kind === "user" || node.kind === "assistant") && node.status === "complete")
-        .filter((node) => node.content.trim())
-        .map((node) => ({ role: node.kind as "user" | "assistant", content: node.content.trim() })),
-    );
-  }
-
-  const selected: ConversationTurn[] = [];
-  let characters = 0;
-  for (const turn of turns.slice(-MAX_HISTORY_MESSAGES).reverse()) {
-    const nextCharacters = characters + turn.content.length;
-    if (selected.length > 0 && nextCharacters > MAX_HISTORY_CHARS) break;
-    selected.push(turn);
-    characters = nextCharacters;
-  }
-  return selected.reverse();
+  return getConversationHistory(snapshot, input).map(({ role, content }) => ({
+    role: role as ConversationTurn["role"],
+    content,
+  }));
 }
 
 /** Desktop conversation adapter: IPC to the Rust local ModelGateway, then local event shaping. */

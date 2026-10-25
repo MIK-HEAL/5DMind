@@ -2,7 +2,9 @@ use crate::providers::chat::complete_remote;
 use crate::providers::stream::{complete_remote_stream, emit_stream_event};
 use base64::Engine;
 use serde::Serialize;
+use std::io::{Cursor, Read};
 use std::path::Path;
+use zip::ZipArchive;
 use crate::providers::{
     CompleteMessageInput, CompleteMessageResponse, ProviderStreamEvent, provider_kind,
     validated_relation,
@@ -10,6 +12,68 @@ use crate::providers::{
 
 const MAX_ATTACHMENT_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT: usize = 120_000;
+
+fn decode_xml_entities(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+fn extract_docx_text(bytes: &[u8]) -> Result<String, String> {
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|_| "DOCX 文件结构无效".to_string())?;
+    let mut document = archive
+        .by_name("word/document.xml")
+        .map_err(|_| "DOCX 中缺少正文内容".to_string())?;
+    let mut xml = String::new();
+    document.read_to_string(&mut xml).map_err(|_| "DOCX 正文编码无效".to_string())?;
+
+    let mut text = String::new();
+    let mut cursor = 0;
+    while let Some(open) = xml[cursor..].find('<') {
+        let start = cursor + open;
+        if start > cursor {
+            let segment = decode_xml_entities(&xml[cursor..start]);
+            if !segment.trim().is_empty() {
+                text.push_str(&segment);
+            }
+        }
+        let Some(close) = xml[start..].find('>') else { break };
+        let tag = &xml[start + 1..start + close];
+        if !tag.starts_with('/') {
+            let name = tag
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .trim_end_matches('/');
+            match name {
+                "w:tab" => text.push('\t'),
+                "w:br" | "w:cr" | "w:p" => text.push('\n'),
+                _ => {}
+            }
+        }
+        cursor = start + close + 1;
+    }
+    if cursor < xml.len() {
+        let segment = decode_xml_entities(&xml[cursor..]);
+        if !segment.trim().is_empty() {
+            text.push_str(&segment);
+        }
+    }
+    let normalized = text
+        .lines()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if normalized.is_empty() {
+        return Err("DOCX 中没有可提取的正文文本".to_string());
+    }
+    Ok(normalized.chars().take(MAX_ATTACHMENT_TEXT).collect())
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +109,7 @@ pub(crate) fn read_local_attachment(path: String) -> Result<LocalAttachment, Str
         "html" | "htm" => "text/html",
         "xml" => "application/xml",
         "yaml" | "yml" => "text/yaml",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
@@ -52,8 +117,9 @@ pub(crate) fn read_local_attachment(path: String) -> Result<LocalAttachment, Str
         "pdf" => "application/pdf",
         _ => "application/octet-stream",
     }.to_string();
-    let is_text = mime_type.starts_with("text/") || matches!(extension.as_str(), "json" | "jsonl" | "xml" | "yaml" | "yml");
-    let text_content = if is_text {
+    let text_content = if extension == "docx" {
+        Some(extract_docx_text(&bytes)?)
+    } else if mime_type.starts_with("text/") || matches!(extension.as_str(), "json" | "jsonl" | "xml" | "yaml" | "yml") {
         Some(String::from_utf8_lossy(&bytes).chars().take(MAX_ATTACHMENT_TEXT).collect())
     } else {
         None
@@ -219,6 +285,40 @@ pub(crate) async fn complete_message(
 mod tests {
     use super::*;
     use crate::providers::FocusSelectionInput;
+    use std::io::Write;
+    use zip::write::{SimpleFileOptions, ZipWriter};
+
+    #[test]
+    fn extracts_docx_paragraphs_tabs_and_entities() {
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        archive
+            .start_file("word/document.xml", SimpleFileOptions::default())
+            .expect("document entry");
+        archive
+            .write_all(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body><w:p><w:r><w:t>第一段 &amp; 内容</w:t><w:tab/><w:t>尾部</w:t></w:r></w:p>
+                  <w:p><w:r><w:t>第二段</w:t><w:br/><w:t>换行</w:t></w:r></w:p></w:body>
+                </w:document>"#
+                    .as_bytes(),
+            )
+            .expect("document xml");
+        let bytes = archive.finish().expect("zip finish").into_inner();
+
+        assert_eq!(
+            extract_docx_text(&bytes).expect("docx text"),
+            "第一段 & 内容\t尾部\n第二段\n换行"
+        );
+
+        let path = std::env::temp_dir().join(format!("5dmind-docx-{}.docx", uuid::Uuid::new_v4()));
+        std::fs::write(&path, &bytes).expect("write docx fixture");
+        let attachment = read_local_attachment(path.to_string_lossy().into_owned()).expect("read docx attachment");
+        assert_eq!(attachment.mime_type, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        assert_eq!(attachment.text_content.as_deref(), Some("第一段 & 内容\t尾部\n第二段\n换行"));
+        assert!(attachment.data_url.is_none());
+        std::fs::remove_file(path).expect("remove docx fixture");
+    }
 
     #[test]
     fn completes_a_local_message_without_network_access() {

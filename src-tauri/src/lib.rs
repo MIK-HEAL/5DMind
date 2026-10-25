@@ -3,12 +3,14 @@ mod credentials;
 mod db;
 mod providers;
 mod search;
+mod timeline_tools;
 
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -27,7 +29,8 @@ pub fn run() {
             credentials::set_provider_credential,
             credentials::delete_provider_credential,
             providers::directory::test_provider_connection,
-            providers::directory::list_provider_models
+            providers::directory::list_provider_models,
+            timeline_tools::execute_timeline_tool
         ])
         .run(tauri::generate_context!())
         .expect("error while running 5DMind");

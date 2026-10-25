@@ -66,6 +66,40 @@ describe("settingsRepository", () => {
     expect(settingsRepository.load()).toEqual(defaultPreferences);
   });
 
+  it("repairs malformed agents and dangling provider/model references", () => {
+    const defaults = settingsRepository.load();
+    localStorage.setItem("5dmind.preferences.v2", JSON.stringify({
+      ...defaults,
+      activeAgentId: "missing",
+      agents: [{
+        id: "broken",
+        name: "损坏 Agent",
+        providerId: "missing-provider",
+        modelId: "missing-model",
+        temperature: 99,
+        tools: { webSearch: true },
+      }],
+    }));
+
+    const repaired = settingsRepository.load();
+    expect(repaired.activeAgentId).toBe("broken");
+    expect(repaired.agents[0]).toMatchObject({
+      providerId: "provider-local",
+      modelId: "5D Local Gateway",
+      temperature: 2,
+      permissionMode: "ask",
+      tools: { webSearch: true, files: true, timeline: true },
+    });
+  });
+
+  it("restores the default agent set when stored agents are empty", () => {
+    const defaults = settingsRepository.load();
+    localStorage.setItem("5dmind.preferences.v2", JSON.stringify({ ...defaults, agents: [], activeAgentId: "missing" }));
+    const repaired = settingsRepository.load();
+    expect(repaired.agents.length).toBe(defaultPreferences.agents.length);
+    expect(repaired.activeAgentId).toBe(defaultPreferences.activeAgentId);
+  });
+
   it("removes credential query parameters while preserving non-secret provider options", () => {
     expect(sanitizeProviderUrl("https://api.example.com/v1?api_key=secret&api-version=2024-01-01")).toBe(
       "https://api.example.com/v1?api-version=2024-01-01",

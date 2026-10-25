@@ -13,6 +13,7 @@ import {
   Quote,
   RotateCcw,
   Trash2,
+  UsersRound,
 } from "lucide-react";
 import { useState, type FormEvent, type MouseEvent, type PointerEvent } from "react";
 import type { ConversationNode, Threat, Timeline } from "../../domain/types";
@@ -30,6 +31,9 @@ interface MessageCardProps {
   onFork: () => void;
   onThreat: () => void;
   onReference: () => void;
+  onCompare: () => void;
+  onDoubleClick?: () => void;
+  timelineToolsEnabled: boolean;
   onEdit: (nodeId: string, content: string) => Promise<void>;
   onEditAndResend: (nodeId: string, content: string) => Promise<void>;
   onRetry: (nodeId: string) => Promise<void>;
@@ -58,6 +62,9 @@ export function MessageCard({
   onFork,
   onThreat,
   onReference,
+  onCompare,
+  onDoubleClick,
+  timelineToolsEnabled,
   onEdit,
   onEditAndResend,
   onRetry,
@@ -154,6 +161,7 @@ export function MessageCard({
       <button
         title="引用到当前线"
         aria-label="引用到当前线"
+        disabled={!timelineToolsEnabled}
         onClick={(event) => {
           event.stopPropagation();
           onReference();
@@ -164,6 +172,7 @@ export function MessageCard({
       <button
         title="从此处分支"
         aria-label="从此处分支"
+        disabled={!timelineToolsEnabled}
         onClick={(event) => {
           event.stopPropagation();
           onFork();
@@ -174,6 +183,7 @@ export function MessageCard({
       <button
         title="标记风险"
         aria-label="标记风险"
+        disabled={!timelineToolsEnabled}
         onClick={(event) => {
           event.stopPropagation();
           onThreat();
@@ -181,6 +191,18 @@ export function MessageCard({
       >
         <AlertTriangle size={15} />
       </button>
+      {!isUser && (
+        <button
+          title="添加双视角回复"
+          aria-label="添加双视角回复"
+          onClick={(event) => {
+            event.stopPropagation();
+            onCompare();
+          }}
+        >
+          <UsersRound size={15} />
+        </button>
+      )}
       {isUser && !inherited && (
         <button
           title="编辑消息"
@@ -227,6 +249,7 @@ export function MessageCard({
       className={`message-card ${node.kind} ${node.status} ${selected ? "selected" : ""}`}
       data-message-id={node.id}
       onClick={onSelect}
+      onDoubleClick={onDoubleClick}
     >
       {!isUser && (
         <div className={`message-avatar ${node.kind}`}>

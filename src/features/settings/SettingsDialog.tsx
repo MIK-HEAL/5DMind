@@ -589,10 +589,6 @@ function AgentSettings() {
   const selected = preferences.agents.find((agent) => agent.id === selectedId) ?? activeAgent;
   const provider = preferences.providers.find((item) => item.id === selected.providerId) ?? preferences.providers[0];
 
-  if (!preferences.agents.some((agent) => agent.id === selectedId)) {
-    setSelectedId(activeAgent.id);
-  }
-
   const permissionLabels: Record<AgentPermissionMode, string> = { "read-only": "只读", ask: "询问", auto: "自动" };
   const reasoningLabels: Record<ReasoningEffort, string> = {
     default: "默认",

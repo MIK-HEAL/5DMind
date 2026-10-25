@@ -485,4 +485,40 @@ mod tests {
         assert_eq!(gemini["contents"][0]["parts"][1]["inline_data"]["mime_type"], "image/png");
         assert_eq!(gemini["contents"][0]["parts"][1]["inline_data"]["data"], "aGVsbG8=");
     }
+
+    #[test]
+    fn sends_text_attachment_content_in_the_user_prompt() {
+        let input = CompleteMessageInput {
+            timeline_id: "timeline-1".to_string(),
+            content: "请总结附件".to_string(),
+            parent_node_id: None,
+            relation: None,
+            inquiry_root_id: None,
+            focus_selection: None,
+            model: Some("text-model".to_string()),
+            provider_id: Some("provider".to_string()),
+            provider_type: Some("openai-compatible".to_string()),
+            base_url: Some("https://example.com/v1".to_string()),
+            api_path: None,
+            request_timeout_ms: None,
+            instructions: None,
+            temperature: None,
+            reasoning_effort: None,
+            web_search: false,
+            history: Vec::new(),
+            attachments: vec![AttachmentInput {
+                _id: "docx-1".to_string(),
+                name: "实验报告.docx".to_string(),
+                mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+                size: 1024,
+                text_content: Some("这是从 DOCX 提取的正文".to_string()),
+                data_url: None,
+            }],
+        };
+
+        let body = remote_body(&input, "openai-compatible", "text-model", false, "");
+        let prompt = body["messages"][1]["content"].as_str().expect("text prompt");
+        assert!(prompt.contains("实验报告.docx"));
+        assert!(prompt.contains("这是从 DOCX 提取的正文"));
+    }
 }

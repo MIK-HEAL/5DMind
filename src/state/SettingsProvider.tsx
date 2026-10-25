@@ -107,9 +107,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const updateProvider = useCallback((providerId: string, patch: Partial<ModelProvider>) => {
     setPreferences((current) => ({
       ...current,
-      providers: current.providers.map((provider) =>
-        provider.id === providerId ? { ...provider, ...patch } : provider,
-      ),
+      providers: current.providers.map((provider) => provider.id === providerId ? { ...provider, ...patch } : provider),
+      agents: current.agents.map((agent) => {
+        if (agent.providerId !== providerId) return agent;
+        const nextModels = patch.models ?? current.providers.find((provider) => provider.id === providerId)?.models ?? [];
+        return nextModels.includes(agent.modelId) ? agent : { ...agent, modelId: nextModels[0] ?? "" };
+      }),
     }));
   }, []);
 
@@ -170,9 +173,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const updateAgent = useCallback((agentId: string, patch: Partial<AgentProfile>) => {
+    const safePatch = Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "id")) as Partial<AgentProfile>;
     setPreferences((current) => ({
       ...current,
-      agents: current.agents.map((agent) => (agent.id === agentId ? { ...agent, ...patch } : agent)),
+      agents: current.agents.map((agent) => (agent.id === agentId ? { ...agent, ...safePatch } : agent)),
     }));
   }, []);
 

@@ -1294,6 +1294,354 @@ button:disabled {
   color: var(--red);
   background: #fdf0ec;
 }
+
+.agent-opinion-panel {
+  margin: 22px 0 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.agent-opinion-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.agent-opinion-layout-toggle {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border: 1px solid #d5dfd7;
+  border-radius: 6px;
+  background: #fff;
+  color: #5e8068;
+  cursor: pointer;
+}
+
+.agent-opinion-layout-toggle:hover {
+  border-color: #9fbea7;
+  background: #f4f9f4;
+  color: #477b55;
+}
+
+.agent-opinion-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-opinion-panel.flat .agent-opinion-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.agent-opinion-panel.stack .agent-opinion-grid {
+  position: relative;
+  display: block;
+  min-height: 0;
+}
+
+.agent-opinion-card {
+  position: relative;
+  min-width: 0;
+}
+
+.agent-opinion-card .message-card {
+  width: 100%;
+  margin: 0;
+  padding: 11px 12px 5px;
+  border: 1px solid #d7e0d9;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px #2d513b0b;
+}
+
+.agent-opinion-card .message-card:not(.user) {
+  padding-right: 12px;
+}
+
+.agent-opinion-card.active {
+  z-index: 2;
+  transform: translate(0, 0);
+}
+
+.agent-opinion-card.underlay {
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  transform: none;
+  opacity: .86;
+  pointer-events: none;
+}
+
+.agent-opinion-panel.stack .agent-opinion-card.underlay {
+  position: absolute;
+  inset: 10px 0 auto 16px;
+  width: calc(100% - 16px);
+  height: 100%;
+  overflow: hidden;
+}
+
+.agent-opinion-panel.stack .agent-opinion-card.underlay .message-card {
+  height: 100%;
+  overflow: hidden;
+}
+
+.agent-opinion-panel.flat .agent-opinion-card {
+  z-index: 2;
+}
+
+.agent-opinion-panel.flat .agent-opinion-card.underlay {
+  margin-top: 0;
+  padding-top: 0;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.opinion-agent-list {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0 2px;
+}
+
+.opinion-agent-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 11px 8px 13px;
+  border: 1px solid #dfe6e0;
+  border-radius: 9px;
+  background: #fbfcfa;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.opinion-agent-option:hover {
+  border-color: #a8c4b2;
+  background: #f7fbf7;
+  transform: translateY(-1px);
+}
+
+.opinion-agent-option.selected {
+  border-color: #6f9c7c;
+  background: #f1f8f2;
+  box-shadow: 0 0 0 2px #dcecdf;
+}
+
+.opinion-agent-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.opinion-agent-mark {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-color) 16%, white);
+  color: var(--agent-color);
+}
+
+.opinion-agent-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.opinion-agent-copy strong {
+  color: #26352c;
+  font-size: 12px;
+}
+
+.opinion-agent-copy small {
+  overflow: hidden;
+  color: #7a897f;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opinion-agent-check {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border: 1px solid #cbd7cd;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.opinion-agent-check span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.opinion-agent-option.selected .opinion-agent-check {
+  border-color: #5f8e6e;
+  background: #5f8e6e;
+}
+
+.opinion-agent-option.selected .opinion-agent-check span {
+  background: #fff;
+}
+
+.opinion-modal {
+  width: min(520px, 100%);
+  overflow: hidden;
+}
+
+.opinion-modal > header {
+  padding: 17px 20px 15px;
+  background: #fbfcf9;
+}
+
+.opinion-modal > header strong {
+  font: 600 16px "DM Sans", sans-serif;
+  letter-spacing: 0;
+}
+
+.opinion-picker {
+  padding: 17px 20px 0;
+}
+
+.opinion-source-preview p {
+  margin: 4px 0 0;
+  color: #7c897f;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.opinion-source-preview {
+  margin: 16px 0 17px;
+  padding: 11px 13px;
+  border-left: 3px solid #79a686;
+  border-radius: 0 8px 8px 0;
+  background: #f2f7f2;
+}
+
+.opinion-source-preview > span {
+  color: #6c8b76;
+  font: 9px "DM Mono", monospace;
+  text-transform: uppercase;
+}
+
+.opinion-source-preview strong {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #334a3a;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opinion-picker-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.opinion-picker-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.opinion-picker-heading strong {
+  color: #35463a;
+  font-size: 12px;
+}
+
+.opinion-picker-heading small,
+.opinion-picker-heading > span {
+  color: #8a978d;
+  font-size: 10px;
+}
+
+.opinion-picker-heading > span {
+  font-family: "DM Mono", monospace;
+}
+
+.opinion-modal .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 13px 20px 17px;
+  margin-left: -20px;
+  margin-right: -20px;
+  background: #fbfcf9;
+}
+
+.opinion-modal .modal-actions button {
+  min-width: 78px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.opinion-modal .modal-actions .secondary {
+  border: 1px solid #d7dfd8;
+  background: #fff;
+  color: #68776d;
+}
+
+.opinion-modal .modal-actions .primary {
+  border: 1px solid #4f815e;
+  background: #4f815e;
+  color: #fff;
+}
+
+.opinion-modal .modal-actions .primary:hover:not(:disabled) {
+  background: #3e6e4e;
+}
+
+.opinion-modal .modal-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+@media (max-width: 560px) {
+  .opinion-modal {
+    width: min(100%, 420px);
+  }
+
+  .opinion-picker {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .opinion-modal .modal-actions {
+    margin-left: -14px;
+    margin-right: -14px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+.opinion-agent-option span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.opinion-agent-option small {
+  color: var(--muted, #66736f);
+}
 .message-content {
   max-width: 78ch;
   padding-top: 6px;
@@ -2665,6 +3013,82 @@ button:disabled {
   color: #777a72;
   background: transparent;
   font-size: 9px;
+}
+.composer-context button:hover {
+  color: var(--ink);
+  background: #eef2eb;
+}
+.context-preview-modal {
+  width: min(680px, 100%);
+}
+.context-preview-intro {
+  display: grid;
+  gap: 3px;
+  padding: 13px 17px 0;
+  color: var(--ink);
+}
+.context-preview-intro span {
+  font: 600 12px "Noto Serif SC", serif;
+}
+.context-preview-intro small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.context-preview-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(58vh, 540px);
+  overflow: auto;
+  padding: 13px 17px 17px;
+  background: #f5f6f1;
+}
+.context-preview-message {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.context-preview-message.system {
+  border-color: #c5d7cc;
+  background: #eef7f0;
+}
+.context-preview-message.current {
+  border-color: #d8c8a6;
+  background: #fffaf0;
+}
+.context-preview-message header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+}
+.context-preview-message header strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.context-preview-message pre {
+  max-height: 180px;
+  margin: 0;
+  padding: 9px 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+  font: 11px/1.55 "DM Sans", sans-serif;
+}
+.context-preview-modal > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.context-preview-count {
+  color: var(--muted);
+  font: 9px "DM Mono", monospace;
 }
 .composer textarea {
   width: 100%;

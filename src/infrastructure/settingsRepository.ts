@@ -1,4 +1,4 @@
-import type { ModelProvider, UserPreferences } from "../domain/settings";
+import type { AgentProfile, AgentPermissionMode, ModelProvider, ReasoningEffort, UserPreferences } from "../domain/settings";
 
 const SETTINGS_KEY = "5dmind.preferences.v2";
 
@@ -134,6 +134,45 @@ function sanitizeProvider(provider: ModelProvider): ModelProvider {
   };
 }
 
+const permissionModes: AgentPermissionMode[] = ["ask", "auto", "read-only"];
+const reasoningEfforts: ReasoningEffort[] = ["default", "none", "low", "medium", "high"];
+
+export function sanitizeAgent(agent: Partial<AgentProfile>, providers: ModelProvider[]): AgentProfile | undefined {
+  if (!agent || typeof agent !== "object" || typeof agent.id !== "string" || !agent.id.trim()) return undefined;
+  const fallback = defaultPreferences.agents[0];
+  const provider = providers.find((item) => item.id === agent.providerId && item.enabled) ??
+    providers.find((item) => item.id === agent.providerId) ??
+    providers.find((item) => item.enabled) ?? providers[0];
+  if (!provider) return undefined;
+  const temperature = typeof agent.temperature === "number" && Number.isFinite(agent.temperature)
+    ? Math.min(2, Math.max(0, agent.temperature))
+    : fallback.temperature;
+  const modelId = typeof agent.modelId === "string" && provider.models.includes(agent.modelId)
+    ? agent.modelId
+    : (provider.models[0] ?? "");
+  return {
+    id: agent.id,
+    name: typeof agent.name === "string" && agent.name.trim() ? agent.name : fallback.name,
+    description: typeof agent.description === "string" ? agent.description : "",
+    instructions: typeof agent.instructions === "string" ? agent.instructions : "",
+    providerId: provider.id,
+    modelId,
+    temperature,
+    reasoningEffort: reasoningEfforts.includes(agent.reasoningEffort as ReasoningEffort)
+      ? agent.reasoningEffort as ReasoningEffort
+      : "default",
+    permissionMode: permissionModes.includes(agent.permissionMode as AgentPermissionMode)
+      ? agent.permissionMode as AgentPermissionMode
+      : "ask",
+    tools: {
+      webSearch: Boolean(agent.tools?.webSearch),
+      files: agent.tools?.files !== false,
+      timeline: agent.tools?.timeline !== false,
+    },
+    color: typeof agent.color === "string" && agent.color.trim() ? agent.color : fallback.color,
+  };
+}
+
 export const settingsRepository = {
   load(): UserPreferences {
     try {
@@ -145,6 +184,10 @@ export const settingsRepository = {
       }
       const merged = { ...cloneDefaults(), ...parsed } as UserPreferences;
       merged.providers = merged.providers.map(sanitizeProvider);
+      const agents = merged.agents
+        .map((agent) => sanitizeAgent(agent, merged.providers))
+        .filter((agent): agent is AgentProfile => Boolean(agent));
+      merged.agents = agents.length ? agents : cloneDefaults().agents;
       const localProvider = merged.providers.find((provider) => provider.type === "local");
       if (localProvider) {
         localProvider.enabled = true;
@@ -155,9 +198,7 @@ export const settingsRepository = {
             : agent,
         );
       }
-      if (!merged.agents.some((agent) => agent.id === merged.activeAgentId)) {
-        merged.activeAgentId = merged.agents[0]?.id ?? defaultPreferences.activeAgentId;
-      }
+      if (!merged.agents.some((agent) => agent.id === merged.activeAgentId)) merged.activeAgentId = merged.agents[0].id;
       return merged;
     } catch {
       return cloneDefaults();
@@ -168,6 +209,10 @@ export const settingsRepository = {
     const safePreferences = {
       ...preferences,
       providers: preferences.providers.map(sanitizeProvider),
+      agents: (preferences.agents.length ? preferences.agents : defaultPreferences.agents)
+        .map((agent) => sanitizeAgent(agent, preferences.providers)).filter(
+        (agent): agent is AgentProfile => Boolean(agent),
+      ),
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(safePreferences));
   },

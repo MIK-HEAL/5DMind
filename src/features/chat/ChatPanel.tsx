@@ -3,8 +3,10 @@ import {
   Bot,
   Brain,
   ChevronRight,
+  Columns2,
   GitBranch,
   Globe2,
+  Layers2,
   Paperclip,
   Quote,
   Settings2,
@@ -14,7 +16,9 @@ import {
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent } from "react";
 import { Select } from "../../components/ui/Select";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openNativeFileDialog } from "@tauri-apps/plugin-dialog";
 import type { ContextMode, ConversationNode, FocusSelection, Threat } from "../../domain/types";
+import { buildContextPreview } from "../../domain/context";
 import {
   formatAttachmentSize,
   isTextAttachment,
@@ -42,6 +46,7 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  className?: string;
 }
 
 interface SelectionState extends FocusSelection {
@@ -68,24 +73,30 @@ function contentHash(value: string) {
 
 const blockedAttachmentExtensions = /\.(exe|dll|dmg|app|sh|bat|cmd|ps1|com)$/i;
 
+interface NativeAttachment {
+  name: string;
+  mimeType: string;
+  size: number;
+  textContent?: string;
+  dataUrl?: string;
+}
+
+async function readNativeAttachment(path: string): Promise<MessageAttachment> {
+  const native = await invoke<NativeAttachment>("read_local_attachment", { path });
+  return {
+    id: `${path}-${native.size}-${native.name}`,
+    name: native.name,
+    mimeType: native.mimeType,
+    size: native.size,
+    ...(native.textContent !== undefined ? { textContent: native.textContent } : {}),
+    ...(native.dataUrl ? { dataUrl: native.dataUrl } : {}),
+  };
+}
+
 async function readAttachment(file: File): Promise<MessageAttachment> {
   const nativePath = (file as File & { path?: string }).path;
   if (runtimeTarget === "desktop" && nativePath) {
-    const native = await invoke<{
-      name: string;
-      mimeType: string;
-      size: number;
-      textContent?: string;
-      dataUrl?: string;
-    }>("read_local_attachment", { path: nativePath });
-    return {
-      id: `${native.name}-${native.size}-${crypto.randomUUID()}`,
-      name: native.name,
-      mimeType: native.mimeType,
-      size: native.size,
-      ...(native.textContent !== undefined ? { textContent: native.textContent } : {}),
-      ...(native.dataUrl ? { dataUrl: native.dataUrl } : {}),
-    };
+    return readNativeAttachment(nativePath);
   }
   const textContent = isTextAttachment(file) ? (await file.text()).slice(0, MAX_ATTACHMENT_TEXT) : undefined;
   const dataUrl = textContent === undefined ? await new Promise<string>((resolve, reject) => {
@@ -104,11 +115,11 @@ async function readAttachment(file: File): Promise<MessageAttachment> {
   };
 }
 
-function Modal({ title, children, onClose }: ModalProps) {
+function Modal({ title, children, onClose, className }: ModalProps) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
-        className="modal"
+        className={`modal ${className ?? ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -208,6 +219,7 @@ export function ChatPanel() {
     mapOpen,
     setMapOpen,
     sendMessage,
+    generateAgentOpinions,
     forkFromNode,
     createThreat,
     createReference,
@@ -227,11 +239,17 @@ export function ChatPanel() {
   const [sending, setSending] = useState(false);
   const [forkNodeId, setForkNodeId] = useState<string>();
   const [threatNodeId, setThreatNodeId] = useState<string>();
+  const [opinionNodeId, setOpinionNodeId] = useState<string>();
+  const [opinionAgentIds, setOpinionAgentIds] = useState<string[]>([]);
+  const [opinionLayout, setOpinionLayout] = useState<"stack" | "flat">("stack");
+  const [opinionCursors, setOpinionCursors] = useState<Record<string, number>>({});
+  const [opinionSending, setOpinionSending] = useState(false);
   const [deleteNodeId, setDeleteNodeId] = useState<string>();
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [messageActionError, setMessageActionError] = useState<string>();
   const [branchName, setBranchName] = useState("");
   const [contextMode, setContextMode] = useState<ContextMode>("until-node");
+  const [contextPreviewOpen, setContextPreviewOpen] = useState(false);
   const [threatTitle, setThreatTitle] = useState("");
   const [threatDetail, setThreatDetail] = useState("");
   const [severity, setSeverity] = useState<Threat["severity"]>("medium");
@@ -255,8 +273,29 @@ export function ChatPanel() {
   const endRef = useRef<HTMLDivElement>(null);
   const timeline = getTimeline(snapshot, snapshot.currentTimelineId);
   const nodes = useMemo(
-    () => getTimelineNodes(snapshot, timeline.id).filter((node) => !isFocusedInquiry(node)),
+    () => getTimelineNodes(snapshot, timeline.id).filter((node) => !isFocusedInquiry(node) && !(node.kind === "assistant" && node.metadata.opinionGroupId)),
     [snapshot, timeline.id],
+  );
+  const opinionGroups = useMemo(() => {
+    const groups = new Map<string, ConversationNode[]>();
+    for (const node of getTimelineNodes(snapshot, timeline.id)) {
+      if (!node.metadata.opinionGroupId || node.kind !== "assistant") continue;
+      const group = groups.get(node.metadata.opinionGroupId) ?? [];
+      group.push(node);
+      groups.set(node.metadata.opinionGroupId, group);
+    }
+    return [...groups.entries()];
+  }, [snapshot, timeline.id]);
+  const opinionSource = opinionNodeId ? snapshot.nodes.find((node) => node.id === opinionNodeId) : undefined;
+  const contextPreview = useMemo(
+    () => buildContextPreview(snapshot, {
+      timelineId: timeline.id,
+      content: draft,
+      instructions: instructionsOverride.trim() || activeAgent.instructions,
+      attachments: activeAgent.tools.files ? attachments : undefined,
+      webSearch,
+    }),
+    [activeAgent.instructions, activeAgent.tools.files, attachments, draft, instructionsOverride, snapshot, timeline.id, webSearch],
   );
 
   const [prevAgentId, setPrevAgentId] = useState(activeAgent.id);
@@ -331,6 +370,57 @@ export function ChatPanel() {
       setAttachmentError(undefined);
     } catch (error) {
       setAttachmentError(error instanceof Error ? error.message : "文件读取失败，请重试");
+    }
+  };
+
+  const openAttachments = async () => {
+    if (!activeAgent.tools.files) {
+      setAttachmentError("当前 Agent 未启用文件工具");
+      return;
+    }
+    if (runtimeTarget !== "desktop") {
+      attachmentInputRef.current?.click();
+      return;
+    }
+    try {
+      const selected = await openNativeFileDialog({
+        multiple: true,
+        directory: false,
+        filters: [{
+          name: "支持的文件",
+          extensions: [
+            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "md", "mdx", "txt", "csv",
+            "json", "jsonl", "xml", "yaml", "yml", "log", "ts", "tsx", "js", "jsx", "css", "html",
+            "sql", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "wav", "mp4", "webm",
+          ],
+        }],
+      });
+      if (!selected) return;
+      const paths = (Array.isArray(selected) ? selected : [selected]).slice(0, MAX_ATTACHMENT_COUNT - attachments.length);
+      if (!paths.length) {
+        setAttachmentError(`最多同时附加 ${MAX_ATTACHMENT_COUNT} 个文件`);
+        return;
+      }
+      const loaded = await Promise.allSettled(paths.map(readNativeAttachment));
+      const successful = loaded.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      const failed = loaded.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (successful.length) {
+        const currentSize = attachments.reduce((sum, item) => sum + item.size, 0);
+        const incomingSize = successful.reduce((sum, item) => sum + item.size, 0);
+        if (currentSize + incomingSize > MAX_ATTACHMENT_TOTAL_SIZE) {
+          setAttachmentError(`附件总大小不能超过 ${formatAttachmentSize(MAX_ATTACHMENT_TOTAL_SIZE)}`);
+          return;
+        }
+        setAttachments((current) => {
+          const seen = new Set(current.map((item) => item.id));
+          return [...current, ...successful.filter((item) => !seen.has(item.id))];
+        });
+      }
+      setAttachmentError(failed
+        ? failed.reason instanceof Error ? failed.reason.message : "文件读取失败，请重试"
+        : undefined);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : "打开文件选择器失败，请重试");
     }
   };
 
@@ -469,6 +559,11 @@ export function ChatPanel() {
                 setThreatTitle(`风险 · ${node.summary}`);
               }}
               onReference={() => createReference(node.id)}
+              onCompare={() => {
+                setOpinionNodeId(node.id);
+                setOpinionAgentIds(preferences.agents.filter((agent) => agent.id !== activeAgent.id).slice(0, 2).map((agent) => agent.id));
+              }}
+              timelineToolsEnabled={activeAgent.tools.timeline && activeAgent.permissionMode !== "read-only"}
               onEdit={updateMessage}
               onEditAndResend={editAndResendMessage}
               onRetry={retryMessage}
@@ -489,8 +584,126 @@ export function ChatPanel() {
             <span>{activeAgent.description || "今天想一起处理什么？"}</span>
           </div>
         )}
+        {opinionGroups.map(([groupId, allOpinions]) => {
+          const opinions = allOpinions.slice(-2);
+          const cursor = Math.min(opinionCursors[groupId] ?? 0, Math.max(0, opinions.length - 1));
+          const displayOpinions = opinionLayout === "flat"
+            ? opinions
+            : opinions.length === 2
+              ? [opinions[cursor], opinions[cursor === 0 ? 1 : 0]]
+              : opinions;
+          return (
+          <section className={`agent-opinion-panel ${opinionLayout}`} key={groupId}>
+            <div className="agent-opinion-toolbar">
+              <button
+                type="button"
+                className="agent-opinion-layout-toggle"
+                title={opinionLayout === "stack" ? "切换为平铺" : "切换为堆叠"}
+                aria-label={opinionLayout === "stack" ? "切换为平铺" : "切换为堆叠"}
+                aria-pressed={opinionLayout === "flat"}
+                onClick={() => setOpinionLayout((layout) => layout === "stack" ? "flat" : "stack")}
+              >
+                {opinionLayout === "stack" ? <Columns2 size={15} /> : <Layers2 size={15} />}
+              </button>
+            </div>
+            <div className="agent-opinion-grid">
+              {displayOpinions.map((opinion, opinionIndex) => (
+                <div className={`agent-opinion-card ${opinionIndex === 0 ? "active" : "underlay"}`} key={opinion.id}>
+                <MessageCard
+                  node={opinion}
+                  nodeTimeline={timeline}
+                  currentTimelineId={timeline.id}
+                  selected={selectedNodeId === opinion.id}
+                  threats={snapshot.threats.filter((threat) => threat.nodeId === opinion.id)}
+                  inquiries={getFocusedInquiryRoots(snapshot, opinion.id, timeline.id)}
+                  onSelect={() => selectNode(opinion.id)}
+                  onFork={() => {
+                    setForkNodeId(opinion.id);
+                    setBranchName(`分支 · ${opinion.summary}`);
+                  }}
+                  onThreat={() => {
+                    setThreatNodeId(opinion.id);
+                    setThreatTitle(`风险 · ${opinion.summary}`);
+                  }}
+                  onReference={() => createReference(opinion.id)}
+                  onCompare={() => {
+                    setOpinionNodeId(opinion.id);
+                    setOpinionAgentIds(preferences.agents.filter((agent) => agent.id !== activeAgent.id).slice(0, 2).map((agent) => agent.id));
+                  }}
+                  timelineToolsEnabled={activeAgent.tools.timeline && activeAgent.permissionMode !== "read-only"}
+                  onEdit={updateMessage}
+                  onEditAndResend={editAndResendMessage}
+                  onRetry={retryMessage}
+                  onDelete={() => setDeleteNodeId(opinion.id)}
+                  onSelectText={(event) => selectMessageText(opinion.id, opinion.kind, event)}
+                  onOpenInquiry={(nodeId) => {
+                    openInquiry(nodeId);
+                    selectNode(nodeId);
+                  }}
+                  onDoubleClick={opinionLayout === "stack" && opinions.length === 2 && opinionIndex === 0
+                    ? () => setOpinionCursors((current) => ({ ...current, [groupId]: cursor === 0 ? 1 : 0 }))
+                    : undefined}
+                />
+                </div>
+              ))}
+            </div>
+          </section>
+          );
+        })}
         <div ref={endRef} />
       </div>
+
+      {opinionNodeId && (
+        <Modal className="opinion-modal" title="选择意见来源" onClose={() => setOpinionNodeId(undefined)}>
+          <div className="opinion-picker">
+            {opinionSource && (
+              <div className="opinion-source-preview">
+                <span>正在重审</span>
+                <strong>{opinionSource.summary}</strong>
+                <p>{opinionSource.content.slice(0, 180)}{opinionSource.content.length > 180 ? "…" : ""}</p>
+              </div>
+            )}
+            <div className="opinion-picker-heading">
+              <div><strong>选择视角</strong></div>
+              <span>{opinionAgentIds.length} / 2</span>
+            </div>
+            <div className="opinion-agent-list">
+              {preferences.agents.map((agent) => (
+                <label key={agent.id} className={`opinion-agent-option ${opinionAgentIds.includes(agent.id) ? "selected" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={opinionAgentIds.includes(agent.id)}
+                    onChange={() => setOpinionAgentIds((current) => current.includes(agent.id)
+                      ? current.filter((id) => id !== agent.id)
+                      : current.length >= 2 ? current : [...current, agent.id])}
+                  />
+                  <span className="opinion-agent-mark" style={{ "--agent-color": agent.color } as React.CSSProperties}><Bot size={15} /></span>
+                  <span className="opinion-agent-copy"><strong>{agent.name}</strong><small>{agent.description}</small></span>
+                  <span className="opinion-agent-check"><span /></span>
+                </label>
+              ))}
+            </div>
+            <footer className="modal-actions">
+              <button type="button" className="secondary" onClick={() => setOpinionNodeId(undefined)}>取消</button>
+              <button
+                type="button"
+                className="primary"
+                disabled={opinionSending || opinionAgentIds.length === 0}
+                onClick={async () => {
+                  if (!opinionNodeId) return;
+                  setOpinionSending(true);
+                  try {
+                    await generateAgentOpinions(opinionNodeId, opinionAgentIds);
+                    setOpinionNodeId(undefined);
+                  } finally {
+                    setOpinionSending(false);
+                  }
+                }}
+              >{opinionSending ? "生成中…" : "生成意见"}</button>
+            </footer>
+          </div>
+        </Modal>
+      )}
 
       {selection && !inquiryComposerOpen && (
         <div
@@ -735,7 +948,7 @@ export function ChatPanel() {
             {activeAgent.name}
             <b>{activeAgent.modelId || "未选择模型"}</b>
           </span>
-          <button type="button" title="上下文模式">
+          <button type="button" title="预览发送给模型的上下文" onClick={() => setContextPreviewOpen(true)}>
             <ShieldAlert size={14} />
             {timeline.name} ·{" "}
             {timeline.contextMode === "until-node"
@@ -808,7 +1021,7 @@ export function ChatPanel() {
             className={`attach-button ${!activeAgent.tools.files ? "is-disabled" : ""}`}
             title={activeAgent.tools.files ? "添加附件" : "当前 Agent 未启用文件工具"}
             aria-label={activeAgent.tools.files ? "添加附件" : "当前 Agent 未启用文件工具"}
-            onClick={() => activeAgent.tools.files && attachmentInputRef.current?.click()}
+            onClick={() => void openAttachments()}
           >
             <Paperclip size={18} />
           </button>
@@ -855,6 +1068,32 @@ export function ChatPanel() {
           <GitBranch size={17} />
           <span>查看时间线地图</span>
         </button>
+      )}
+
+      {contextPreviewOpen && (
+        <Modal title="发送前上下文预览" onClose={() => setContextPreviewOpen(false)} className="context-preview-modal">
+          <div className="context-preview-intro">
+            <span>{timeline.name}</span>
+            <small>展示当前分支、系统提示词和本轮输入将组成的消息集合</small>
+          </div>
+          <div className="context-preview-list">
+            {contextPreview.map((message, index) => (
+              <article className={`context-preview-message ${message.kind}`} key={`${message.kind}-${message.sourceNodeId ?? index}`}>
+                <header>
+                  <strong>{message.kind === "system" ? "系统提示" : message.kind === "current" ? "本轮输入" : message.role === "user" ? "你" : activeAgent.name}</strong>
+                  <span>{message.kind === "history" ? "历史上下文" : message.kind === "system" ? "发送时置于系统层" : "发送时追加"}</span>
+                </header>
+                <pre>{message.content}</pre>
+              </article>
+            ))}
+          </div>
+          <footer>
+            <span className="context-preview-count">
+              {contextPreview.length} 条消息 · 历史最多 80 条 / 120,000 字符
+            </span>
+            <button className="primary" onClick={() => setContextPreviewOpen(false)}>返回编辑</button>
+          </footer>
+        </Modal>
       )}
 
       {forkNodeId && (
