@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { WorkspaceSnapshot } from "../domain/types";
 import { createEmptyWorkspace } from "./workspaceFactory";
 
-// Desktop persistence is backed by Tauri SQLite. A missing row means a new empty
-// workspace, not a demo fixture.
+// Native persistence is backed by Tauri SQLite on desktop and mobile. A missing
+// row means a new empty workspace, not a demo fixture.
 
 export const tauriWorkspaceRepository = {
   async load(): Promise<WorkspaceSnapshot> {

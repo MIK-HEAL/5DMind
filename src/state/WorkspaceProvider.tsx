@@ -28,7 +28,7 @@ import { tauriWorkspaceRepository } from "../infrastructure/tauriWorkspaceReposi
 import { TauriConversationService } from "../infrastructure/tauriConversationService";
 import { UnavailableConversationService } from "../infrastructure/unavailableConversationService";
 import { HttpWorkspaceService } from "../infrastructure/httpWorkspaceService";
-import { runtimeTarget, workspaceMode } from "../infrastructure/runtime";
+import { isNativeRuntime, workspaceMode } from "../infrastructure/runtime";
 import { createEmptyWorkspace } from "../infrastructure/workspaceFactory";
 import { useSettings } from "./SettingsProvider";
 
@@ -112,7 +112,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const attachmentPayloadsRef = useRef(new Map<string, MessageAttachment[]>());
   const snapshotRef = useRef(snapshot);
   const remoteService = useMemo(() => new HttpWorkspaceService(), []);
-  const localRepository = runtimeTarget === "desktop" ? tauriWorkspaceRepository : workspaceRepository;
+  const localRepository = isNativeRuntime ? tauriWorkspaceRepository : workspaceRepository;
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -122,7 +122,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () =>
       workspaceMode === "remote"
         ? remoteService
-        : runtimeTarget === "desktop"
+        : isNativeRuntime
           ? new TauriConversationService(snapshotRef)
           : new UnavailableConversationService(snapshotRef),
     [remoteService],

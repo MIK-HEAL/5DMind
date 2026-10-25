@@ -18,7 +18,7 @@ NestJS API（独立运行，前端未调用）
 
 Tauri
   -> SQLite 工作区仓储 commands
-  -> Windows Credential Manager 凭据 commands
+  -> 桌面系统凭据库 / 移动端应用私有 SQLite 凭据 commands
   -> Provider URL/模型目录/对话请求 ModelGateway
 ```
 
@@ -35,8 +35,8 @@ Tauri
 | 分支/比较/合并 | 本地 reducers | 路由已存在 | Timeline adapter、乐观更新回滚、刷新策略 |
 | 跨盘引用 | 本地 reducer | 创建路由已存在 | `ReferenceService`、DTO 映射、远程状态刷新 |
 | 风险标记/解决 | 本地 reducer | 路由已存在 | Threat adapter、`version` 并发字段映射 |
-| 工作区持久化 | 桌面 SQLite command；Web IndexedDB | 进程内存；Drizzle schema 未接管 | PostgreSQL repository、迁移、事务与恢复 |
-| Provider/Agent 设置 | Provider 元数据在 localStorage；API Key 不持久化到前端 | Tauri commands 使用 Windows Credential Manager | 多 Key 轮换、云端同步边界、迁移器 |
+| 工作区持久化 | Tauri 桌面/移动端 SQLite command；Web IndexedDB | 进程内存；Drizzle schema 未接管 | PostgreSQL repository、迁移、事务与恢复 |
+| Provider/Agent 设置 | Provider 元数据在 localStorage；桌面使用系统凭据库，Android 使用应用私有 SQLite | Tauri commands 按平台选择凭据后端 | 多 Key 轮换、云端同步边界、迁移器 |
 | Tauri 离线能力 | SQLite、系统凭据、本地 ModelGateway 和 Provider 原生流式已接入 | 云端仍独立运行 | 重试、取消、迁移器 |
 | 账号与多端同步 | 无 | 无 | 认证、设备会话、增量同步和冲突策略 |
 | 集成测试 | 前后端各自单测 | store/pipe 单测 | 契约测试、API e2e、Web/Tauri 端到端测试 |
@@ -57,7 +57,7 @@ rg -n "TODO\(5dmind-integration\)" src src-tauri apps/api
 - `src/infrastructure/unavailableConversationService.ts`：模型未接入时的明确失败状态。
 - `src/state/SettingsProvider.tsx`：Provider/Agent/偏好与密钥链路。
 - `src/infrastructure/runtime.ts`：按 Web、桌面和显式远程模式选择运行时。
-- `src-tauri/src/lib.rs`：SQLite、Windows Credential Manager、Provider 模型目录和 Rust ModelGateway commands 已接入。
+- `src-tauri/src/lib.rs`：SQLite、平台凭据后端、Provider 模型目录和 Rust ModelGateway commands 已接入。
 - `apps/api/src/infrastructure/workspace.store.ts`：内存仓储与未接入模型时的 503 失败流。
 - `src/features/chat/ChatPanel.tsx`：选区工具条、追问输入和聚焦树交互；首版只允许助手消息选区。
 - `src/features/chat/MessageCard.tsx`：来源消息旁的折叠追问牌堆。

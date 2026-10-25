@@ -274,11 +274,13 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileOpenChange }: Wor
           <Layers3 size={18} />
           <div>
             <strong>
-              {workspaceMode === "remote" ? "云端工作区" : runtimeTarget === "desktop" ? "桌面模式" : "Web 原型"}
+              {workspaceMode === "remote" ? "云端工作区" : runtimeTarget === "mobile" ? "手机模式" : runtimeTarget === "desktop" ? "桌面模式" : "Web 原型"}
             </strong>
             <span>
               {workspaceMode === "remote"
                 ? "NestJS REST + SSE"
+                : runtimeTarget === "mobile"
+                  ? "Tauri + 手机本地数据"
                 : runtimeTarget === "desktop"
                   ? "Tauri + 本地数据"
                   : "已配置 Tauri EXE 打包"}

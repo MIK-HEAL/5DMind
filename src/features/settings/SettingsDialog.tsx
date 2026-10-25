@@ -21,7 +21,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Select } from "../../components/ui/Select";
 import type { AgentPermissionMode, ProviderType, ReasoningEffort, SettingsSection } from "../../domain/settings";
-import { runtimeTarget } from "../../infrastructure/runtime";
+import { isNativeRuntime, runtimeTarget } from "../../infrastructure/runtime";
 import { sanitizeProviderUrl } from "../../infrastructure/settingsRepository";
 import { appVersion, checkForUpdates, type UpdateCheckResult } from "../../infrastructure/updateChecker";
 import { useSettings } from "../../state/SettingsProvider";
@@ -225,6 +225,7 @@ function ProviderSettings() {
   const [connectionMessage, setConnectionMessage] = useState<string>();
   const [connectionOk, setConnectionOk] = useState<boolean>();
   const selected = preferences.providers.find((provider) => provider.id === selectedId) ?? preferences.providers[0];
+  const credentialStorageLabel = runtimeTarget === "mobile" ? "手机应用私有存储" : "系统凭据库";
   const linkedAgents = preferences.agents.filter((agent) => agent.providerId === selected?.id).length;
   const hasCredential = Boolean(selected && providerCredentialStatus[selected.id]);
   const keyRequired = selected ? providerNeedsApiKey(selected.type, selected.baseUrl) : false;
@@ -252,7 +253,7 @@ function ProviderSettings() {
       await saveProviderApiKey(selected.id, apiKeyDraft);
       setApiKeyDraft("");
       setConnectionOk(true);
-      setConnectionMessage("API Key 已保存到系统凭据库");
+      setConnectionMessage(`API Key 已保存到${credentialStorageLabel}`);
     } catch (error) {
       setConnectionOk(false);
       setConnectionMessage(error instanceof Error ? error.message : "保存 API Key 失败");
@@ -266,7 +267,7 @@ function ProviderSettings() {
       await clearProviderApiKey(selected.id);
       setApiKeyDraft("");
       setConnectionOk(undefined);
-      setConnectionMessage("API Key 已从系统凭据库删除");
+      setConnectionMessage(`API Key 已从${credentialStorageLabel}删除`);
     } catch (error) {
       setConnectionOk(false);
       setConnectionMessage(error instanceof Error ? error.message : "删除 API Key 失败");
@@ -438,9 +439,11 @@ function ProviderSettings() {
               <span>
                 {selected.type === "local"
                   ? "内置本地服务不需要网络凭据。"
-                  : runtimeTarget === "desktop"
-                    ? "密钥由 Windows 系统凭据库保管，永不写入 localStorage、SQLite 工作区或导出文件。自托管和 Ollama 服务可以不配置 Key。"
-                    : "Web 模式不保存 API Key，请在桌面版中配置系统凭据。"}
+                  : runtimeTarget === "mobile"
+                    ? "密钥保存在手机应用私有存储中，不会写入导出文件。自托管和 Ollama 服务可以不配置 Key。"
+                    : runtimeTarget === "desktop"
+                      ? "密钥由系统凭据库保管，永不写入 localStorage、SQLite 工作区或导出文件。自托管和 Ollama 服务可以不配置 Key。"
+                      : "Web 模式不保存 API Key，请在桌面或移动端应用中配置。"}
               </span>
             </div>
           </div>
@@ -450,7 +453,7 @@ function ProviderSettings() {
               <input
                 type="password"
                 value={apiKeyDraft}
-                disabled={runtimeTarget !== "desktop" || credentialBusy || selected.type === "local"}
+                disabled={!isNativeRuntime || credentialBusy || selected.type === "local"}
                 autoComplete="new-password"
                 placeholder={hasCredential ? "已配置，输入新值可替换" : "粘贴 Provider API Key"}
                 onChange={(event) => setApiKeyDraft(event.target.value)}
@@ -461,7 +464,7 @@ function ProviderSettings() {
                 type="button"
                 className="settings-action-button"
                 disabled={
-                  runtimeTarget !== "desktop" || credentialBusy || !apiKeyDraft.trim() || selected.type === "local"
+                  !isNativeRuntime || credentialBusy || !apiKeyDraft.trim() || selected.type === "local"
                 }
                 onClick={() => void saveKey()}
               >
@@ -471,7 +474,7 @@ function ProviderSettings() {
               <button
                 type="button"
                 className="settings-action-button"
-                disabled={runtimeTarget !== "desktop" || credentialBusy || !hasCredential || selected.type === "local"}
+                disabled={!isNativeRuntime || credentialBusy || !hasCredential || selected.type === "local"}
                 onClick={() => void clearKey()}
               >
                 <X size={14} />
@@ -481,7 +484,7 @@ function ProviderSettings() {
                 type="button"
                 className="settings-action-button primary-action"
                 disabled={
-                  runtimeTarget !== "desktop" ||
+                  !isNativeRuntime ||
                   connectionBusy ||
                   (selected.type !== "local" && !selected.baseUrl.trim()) ||
                   (providerNeedsApiKey(selected.type, selected.baseUrl) && !hasCredential)
@@ -508,7 +511,7 @@ function ProviderSettings() {
                   className="settings-action-button"
                   disabled={
                     modelsBusy ||
-                    runtimeTarget !== "desktop" ||
+                    !isNativeRuntime ||
                     (providerNeedsApiKey(selected.type, selected.baseUrl) && !hasCredential)
                   }
                   onClick={() => void refreshModels()}
@@ -845,8 +848,8 @@ function DataSettings() {
         <div>
           <HardDrive size={22} />
           <span>
-            <strong>{runtimeTarget === "desktop" ? "桌面本地工作区" : "浏览器本地工作区"}</strong>
-            <small>对话与时间线：{runtimeTarget === "desktop" ? "SQLite" : "IndexedDB"} · 偏好设置：localStorage</small>
+            <strong>{runtimeTarget === "mobile" ? "手机本地工作区" : runtimeTarget === "desktop" ? "桌面本地工作区" : "浏览器本地工作区"}</strong>
+            <small>对话与时间线：{isNativeRuntime ? "SQLite" : "IndexedDB"} · 偏好设置：localStorage</small>
           </span>
         </div>
         <em>自动保存</em>

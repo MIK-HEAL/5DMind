@@ -1,8 +1,18 @@
-export type RuntimeTarget = "web" | "desktop";
+export type RuntimeTarget = "web" | "desktop" | "mobile";
 export type WorkspaceMode = "local" | "remote";
 
-export const runtimeTarget: RuntimeTarget =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? "desktop" : "web";
+const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const isMobileUserAgent = typeof navigator !== "undefined" && (
+  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+);
+
+export const runtimeTarget: RuntimeTarget = !isTauriRuntime
+  ? "web"
+  : isMobileUserAgent
+    ? "mobile"
+    : "desktop";
+export const isNativeRuntime = runtimeTarget !== "web";
 
 const configuredMode = import.meta.env.VITE_WORKSPACE_MODE;
 

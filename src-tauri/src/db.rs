@@ -1,7 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS workspace_snapshots (\
@@ -9,10 +9,14 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS workspace_snapshots (\
   version INTEGER NOT NULL,\
   payload TEXT NOT NULL,\
   updated_at TEXT NOT NULL\
+);\
+CREATE TABLE IF NOT EXISTS provider_credentials (\
+  provider_id TEXT PRIMARY KEY NOT NULL,\
+  api_key TEXT NOT NULL\
 )";
 
 pub(crate) struct AppState {
-    pub(crate) database: Mutex<Connection>,
+    pub(crate) database: Arc<Mutex<Connection>>,
 }
 
 impl AppState {
@@ -24,7 +28,7 @@ impl AppState {
             .execute_batch(SCHEMA)
             .map_err(|error| error.to_string())?;
         Ok(Self {
-            database: Mutex::new(database),
+            database: Arc::new(Mutex::new(database)),
         })
     }
 
@@ -35,7 +39,7 @@ impl AppState {
             .execute_batch(SCHEMA)
             .map_err(|error| error.to_string())?;
         Ok(Self {
-            database: Mutex::new(database),
+            database: Arc::new(Mutex::new(database)),
         })
     }
 }
@@ -193,5 +197,25 @@ mod tests {
             serde_json::from_str::<Value>(&payload).expect("parse"),
             snapshot
         );
+    }
+
+    #[test]
+    fn creates_the_private_provider_credential_store() {
+        let state = AppState::in_memory().expect("in-memory database");
+        let database = state.database.lock().expect("database lock");
+        database
+            .execute(
+                "INSERT INTO provider_credentials(provider_id, api_key) VALUES ('provider-test', 'secret')",
+                [],
+            )
+            .expect("insert provider credential");
+        let stored: String = database
+            .query_row(
+                "SELECT api_key FROM provider_credentials WHERE provider_id = 'provider-test'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read provider credential");
+        assert_eq!(stored, "secret");
     }
 }

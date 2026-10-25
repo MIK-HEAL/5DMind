@@ -9,3 +9,6 @@ src-tauri/target/
 .reference/
 
 .workbuddy/
+
+
+docs_upload_parse_test.docx

@@ -16,7 +16,9 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .map_err(|error| error.to_string())?;
-            app.manage(db::AppState::open(data_dir)?);
+            let state = db::AppState::open(data_dir)?;
+            credentials::initialize(&state);
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

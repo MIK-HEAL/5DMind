@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AgentProfile, ModelProvider, SettingsSection, UserPreferences } from "../domain/settings";
 import { defaultPreferences, settingsRepository } from "../infrastructure/settingsRepository";
-import { runtimeTarget } from "../infrastructure/runtime";
+import { isNativeRuntime } from "../infrastructure/runtime";
 import {
   deleteProviderApiKey,
   listProviderCredentialStatus,
@@ -53,7 +53,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, [preferences]);
 
   useEffect(() => {
-    if (runtimeTarget !== "desktop") return;
+    if (!isNativeRuntime) return;
     let active = true;
     void listProviderCredentialStatus(providerIds.split("|").filter(Boolean))
       .then((status) => {
@@ -120,7 +120,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     async (providerId: string) => {
       const provider = preferences.providers.find((item) => item.id === providerId);
       if (!provider || provider.builtIn || preferences.agents.some((agent) => agent.providerId === providerId)) return;
-      if (runtimeTarget === "desktop") await deleteProviderApiKey(providerId);
+      if (isNativeRuntime) await deleteProviderApiKey(providerId);
       setPreferences((current) => ({
         ...current,
         providers: current.providers.filter((item) => item.id !== providerId),

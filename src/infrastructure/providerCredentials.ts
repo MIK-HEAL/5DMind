@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ModelProvider } from "../domain/settings";
-import { runtimeTarget } from "./runtime";
+import { isNativeRuntime } from "./runtime";
 
 export interface ProviderConnectionResult {
   providerId: string;
@@ -9,14 +9,14 @@ export interface ProviderConnectionResult {
   message: string;
 }
 
-function requireDesktop() {
-  if (runtimeTarget !== "desktop") {
-    throw new Error("系统凭据仅在桌面版可用；Web 模式不会保存 API Key");
+function requireNative() {
+  if (!isNativeRuntime) {
+    throw new Error("Web 模式不会保存 API Key，请在桌面或移动端应用中配置");
   }
 }
 
 export async function listProviderCredentialStatus(providerIds: string[]): Promise<Record<string, boolean>> {
-  requireDesktop();
+  requireNative();
   const statuses = await invoke<Array<{ providerId: string; configured: boolean }>>("list_provider_credentials", {
     providerIds,
   });
@@ -24,12 +24,12 @@ export async function listProviderCredentialStatus(providerIds: string[]): Promi
 }
 
 export async function saveProviderApiKey(providerId: string, apiKey: string): Promise<void> {
-  requireDesktop();
+  requireNative();
   await invoke("set_provider_credential", { input: { providerId, apiKey } });
 }
 
 export async function deleteProviderApiKey(providerId: string): Promise<void> {
-  requireDesktop();
+  requireNative();
   await invoke("delete_provider_credential", { providerId });
 }
 
@@ -37,7 +37,7 @@ export async function testProviderConnection(
   provider: ModelProvider,
   model?: string,
 ): Promise<ProviderConnectionResult> {
-  requireDesktop();
+  requireNative();
   return invoke<ProviderConnectionResult>("test_provider_connection", {
     input: {
       providerId: provider.id,
@@ -52,7 +52,7 @@ export async function testProviderConnection(
 }
 
 export async function listProviderModels(provider: ModelProvider): Promise<string[]> {
-  requireDesktop();
+  requireNative();
   const result = await invoke<{ providerId: string; models: string[] }>("list_provider_models", {
     input: {
       providerId: provider.id,

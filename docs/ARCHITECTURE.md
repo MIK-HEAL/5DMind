@@ -30,7 +30,7 @@ IndexedDB  Rust/SQLite  HTTP / SSE
 
 ### 后端框架边界
 
-NestJS 是可选的云端服务，不是桌面 EXE 的本地后端。桌面端的模型调用由 Rust ModelGateway 负责，密钥通过 Windows Credential Manager 读取；NestJS 继续承担未来账号、权限和同步能力。当前云端服务仍使用内存仓储，模型网关未接入时返回明确的 503 错误状态。服务端继续遵循以下边界：
+NestJS 是可选的云端服务，不是桌面或移动端应用的本地后端。桌面和移动端的模型调用由 Rust ModelGateway 负责，凭据按平台使用系统凭据库或应用私有存储；NestJS 继续承担未来账号、权限和同步能力。当前云端服务仍使用内存仓储，模型网关未接入时返回明确的 503 错误状态。服务端继续遵循以下边界：
 
 - 采用 NestJS 模块化单体和 Fastify adapter，不先拆微服务。
 - PostgreSQL 保存领域事实，Drizzle 管理 schema 与迁移。

@@ -8,7 +8,7 @@
 
 ## 当前阶段
 
-项目处于可运行桌面 MVP 阶段：React/Tauri 前端和 NestJS API 已具备独立构建目标。桌面端默认使用 Tauri command + SQLite 持久化，Provider 的 API URL、路径、模型和超时保存在应用设置中，API Key 由 Windows Credential Manager 保管；OpenAI、Anthropic、Gemini、Ollama 和 OpenAI-compatible Provider 已接入本地 Rust ModelGateway，完整时间线上下文通过 Provider messages 发送，原生 SSE/NDJSON token 通过 Tauri IPC Channel 回传。未配置或连接失败时会显示明确错误，不会把密钥写入 localStorage、工作区 SQLite 或导出 JSON。Web 模式继续使用 IndexedDB，NestJS 远程模式仍是可选同步运行时，PostgreSQL + Drizzle schema 已准备但尚未接管云端运行时数据。产品边界、交互模型、技术架构和 MVP 验收标准见：
+项目处于可运行桌面和移动端 MVP 阶段：React/Tauri 前端和 NestJS API 已具备独立构建目标。桌面端默认使用 Tauri command + SQLite 持久化，Provider 的 API URL、路径、模型和超时保存在应用设置中，桌面端 API Key 使用系统凭据库，Android 使用 Tauri 应用私有 SQLite 存储，iOS 使用 Keychain；OpenAI、Anthropic、Gemini、Ollama 和 OpenAI-compatible Provider 已接入本地 Rust ModelGateway，完整时间线上下文通过 Provider messages 发送，原生 SSE/NDJSON token 通过 Tauri IPC Channel 回传。未配置或连接失败时会显示明确错误，API Key 不会写入导出 JSON。Web 模式继续使用 IndexedDB，NestJS 远程模式仍是可选同步运行时，PostgreSQL + Drizzle schema 已准备但尚未接管云端运行时数据。产品边界、交互模型、技术架构和 MVP 验收标准见：
 
 - [项目开发文档](docs/PROJECT_DEVELOPMENT.md)
 - [技术架构与桌面打包](docs/ARCHITECTURE.md)

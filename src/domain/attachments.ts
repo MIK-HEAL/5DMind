@@ -3,7 +3,7 @@ export interface MessageAttachment {
   name: string;
   mimeType: string;
   size: number;
-  /** Text files are made available to the model as a bounded excerpt. */
+  /** Extracted readable content is made available to the model as a bounded excerpt. */
   textContent?: string;
   /** Binary payload used by providers that support inline data. */
   dataUrl?: string;

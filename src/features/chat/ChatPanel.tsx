@@ -38,7 +38,8 @@ import {
 } from "../../domain/selectors";
 import { useSettings } from "../../state/SettingsProvider";
 import { useWorkspace } from "../../state/WorkspaceProvider";
-import { runtimeTarget, workspaceMode } from "../../infrastructure/runtime";
+import { isNativeRuntime, runtimeTarget, workspaceMode } from "../../infrastructure/runtime";
+import { extractDocxText, isDocxAttachment } from "../../infrastructure/docxText";
 import { MessageMarkdown, ReasoningBlock, splitNodeContent } from "./MessageMarkdown";
 import { MessageCard } from "./MessageCard";
 
@@ -98,7 +99,11 @@ async function readAttachment(file: File): Promise<MessageAttachment> {
   if (runtimeTarget === "desktop" && nativePath) {
     return readNativeAttachment(nativePath);
   }
-  const textContent = isTextAttachment(file) ? (await file.text()).slice(0, MAX_ATTACHMENT_TEXT) : undefined;
+  const textContent = isDocxAttachment(file)
+    ? await extractDocxText(file)
+    : isTextAttachment(file)
+      ? (await file.text()).slice(0, MAX_ATTACHMENT_TEXT)
+      : undefined;
   const dataUrl = textContent === undefined ? await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -108,7 +113,9 @@ async function readAttachment(file: File): Promise<MessageAttachment> {
   return {
     id: `${file.name}-${file.size}-${file.lastModified}`,
     name: file.name,
-    mimeType: file.type || "application/octet-stream",
+    mimeType: file.type || (isDocxAttachment(file)
+      ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      : "application/octet-stream"),
     size: file.size,
     ...(textContent !== undefined ? { textContent } : {}),
     ...(dataUrl ? { dataUrl } : {}),
@@ -1029,8 +1036,8 @@ export function ChatPanel() {
             {timeline.name} ·{" "}
             {workspaceMode === "remote"
               ? "云端 SSE 模式"
-              : runtimeTarget === "desktop"
-                ? "桌面本地 ModelGateway"
+              : isNativeRuntime
+                ? "本地 ModelGateway"
                 : "模型服务未连接"}
             <em className={reasoningEffort === "none" ? "off" : ""}>
               <Brain size={11} />

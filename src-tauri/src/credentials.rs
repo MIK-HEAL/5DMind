@@ -1,6 +1,17 @@
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "ios")))]
+use rusqlite::OptionalExtension;
 use serde::Deserialize;
+use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::db::AppState;
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
 const KEYRING_SERVICE: &str = "app.5dmind.provider";
+static MOBILE_DATABASE: OnceLock<Arc<Mutex<rusqlite::Connection>>> = OnceLock::new();
+
+pub(crate) fn initialize(state: &AppState) {
+    let _ = MOBILE_DATABASE.set(state.database.clone());
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +40,7 @@ pub(crate) fn validate_provider_id(provider_id: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
 fn provider_entry(provider_id: &str) -> Result<keyring::Entry, String> {
     validate_provider_id(provider_id)?;
     keyring::Entry::new(KEYRING_SERVICE, provider_id)
@@ -55,6 +67,7 @@ pub(crate) fn normalize_api_key(value: &str) -> String {
     }
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
 pub(crate) fn provider_api_key(provider_id: &str) -> Result<Option<String>, String> {
     let entry = provider_entry(provider_id)?;
     match entry.get_password() {
@@ -69,6 +82,29 @@ pub(crate) fn provider_api_key(provider_id: &str) -> Result<Option<String>, Stri
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(format!("读取系统凭据失败：{error}")),
     }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "ios")))]
+fn mobile_database() -> Result<&'static Arc<Mutex<rusqlite::Connection>>, String> {
+    MOBILE_DATABASE
+        .get()
+        .ok_or_else(|| "移动端存储尚未初始化".to_string())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "ios")))]
+pub(crate) fn provider_api_key(provider_id: &str) -> Result<Option<String>, String> {
+    validate_provider_id(provider_id)?;
+    let database = mobile_database()?
+        .lock()
+        .map_err(|_| "数据库锁已损坏".to_string())?;
+    database
+        .query_row(
+            "SELECT api_key FROM provider_credentials WHERE provider_id = ?1",
+            [provider_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("读取移动端凭据失败：{error}"))
 }
 
 #[tauri::command]
@@ -93,22 +129,59 @@ pub(crate) fn set_provider_credential(input: ProviderCredentialInput) -> Result<
     if value.is_empty() {
         return Err("API Key 不能为空".to_string());
     }
-    let entry = provider_entry(&input.provider_id)?;
-    entry
-        .set_password(&value)
-        .map_err(|error| format!("保存 API Key 到系统凭据库失败：{error}"))?;
-    match entry.get_password() {
-        Ok(stored) if normalize_api_key(&stored) == value => Ok(()),
-        Ok(_) => Err("系统凭据库写入后校验不一致，请重试".to_string()),
-        Err(error) => Err(format!("API Key 已写入但无法读回校验：{error}")),
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+    {
+        let entry = provider_entry(&input.provider_id)?;
+        entry
+            .set_password(&value)
+            .map_err(|error| format!("保存 API Key 到系统凭据库失败：{error}"))?;
+        return match entry.get_password() {
+            Ok(stored) if normalize_api_key(&stored) == value => Ok(()),
+            Ok(_) => Err("系统凭据库写入后校验不一致，请重试".to_string()),
+            Err(error) => Err(format!("API Key 已写入但无法读回校验：{error}")),
+        };
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "ios")))]
+    {
+        validate_provider_id(&input.provider_id)?;
+        let database = mobile_database()?
+            .lock()
+            .map_err(|_| "数据库锁已损坏".to_string())?;
+        database
+            .execute(
+                "INSERT INTO provider_credentials(provider_id, api_key) VALUES (?1, ?2)\
+                 ON CONFLICT(provider_id) DO UPDATE SET api_key = excluded.api_key",
+                (&input.provider_id, &value),
+            )
+            .map_err(|error| format!("保存移动端 API Key 失败：{error}"))?;
+        Ok(())
     }
 }
 
 #[tauri::command]
 pub(crate) fn delete_provider_credential(provider_id: String) -> Result<(), String> {
-    match provider_entry(&provider_id)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("删除系统凭据失败：{error}")),
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+    {
+        match provider_entry(&provider_id)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!("删除系统凭据失败：{error}")),
+        }
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "ios")))]
+    {
+        validate_provider_id(&provider_id)?;
+        let database = mobile_database()?
+            .lock()
+            .map_err(|_| "数据库锁已损坏".to_string())?;
+        database
+            .execute(
+                "DELETE FROM provider_credentials WHERE provider_id = ?1",
+                [provider_id],
+            )
+            .map_err(|error| format!("删除移动端 API Key 失败：{error}"))?;
+        Ok(())
     }
 }
 
