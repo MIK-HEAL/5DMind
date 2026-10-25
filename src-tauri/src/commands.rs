@@ -117,8 +117,10 @@ pub(crate) fn read_local_attachment(path: String) -> Result<LocalAttachment, Str
         "pdf" => "application/pdf",
         _ => "application/octet-stream",
     }.to_string();
+    // DOCX 提取失败（旧格式改名 / 加密 / 非常规压缩包）时降级为二进制 dataUrl 附件，
+    // 不再让整个附件操作失败：图片等二进制类型本就走该路径。
     let text_content = if extension == "docx" {
-        Some(extract_docx_text(&bytes)?)
+        extract_docx_text(&bytes).ok()
     } else if mime_type.starts_with("text/") || matches!(extension.as_str(), "json" | "jsonl" | "xml" | "yaml" | "yml") {
         Some(String::from_utf8_lossy(&bytes).chars().take(MAX_ATTACHMENT_TEXT).collect())
     } else {
@@ -318,6 +320,32 @@ mod tests {
         assert_eq!(attachment.text_content.as_deref(), Some("第一段 & 内容\t尾部\n第二段\n换行"));
         assert!(attachment.data_url.is_none());
         std::fs::remove_file(path).expect("remove docx fixture");
+    }
+
+    #[test]
+    fn extracts_text_from_a_real_word_docx_fixture() {
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs_upload_parse_test.docx");
+        let bytes = std::fs::read(fixture).expect("read real docx fixture");
+        let text = extract_docx_text(&bytes).expect("extract real docx text");
+        assert!(!text.trim().is_empty(), "real docx should yield readable text");
+    }
+
+    #[test]
+    fn falls_back_to_data_url_when_docx_text_extraction_fails() {
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        archive
+            .start_file("not-document.txt", SimpleFileOptions::default())
+            .expect("decoy entry");
+        archive.write_all(b"placeholder").expect("decoy content");
+        let bytes = archive.finish().expect("zip finish").into_inner();
+
+        let path = std::env::temp_dir().join(format!("5dmind-docx-fallback-{}.docx", uuid::Uuid::new_v4()));
+        std::fs::write(&path, &bytes).expect("write fallback fixture");
+        let attachment = read_local_attachment(path.to_string_lossy().into_owned())
+            .expect("attachment should still succeed via dataUrl fallback");
+        assert!(attachment.text_content.is_none(), "no text should be extracted");
+        assert!(attachment.data_url.as_deref().unwrap_or_default().starts_with("data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"));
+        std::fs::remove_file(path).expect("remove fallback fixture");
     }
 
     #[test]

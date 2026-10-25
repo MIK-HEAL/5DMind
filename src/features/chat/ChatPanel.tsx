@@ -100,7 +100,7 @@ async function readAttachment(file: File): Promise<MessageAttachment> {
     return readNativeAttachment(nativePath);
   }
   const textContent = isDocxAttachment(file)
-    ? await extractDocxText(file)
+    ? await extractDocxText(file).catch(() => undefined)
     : isTextAttachment(file)
       ? (await file.text()).slice(0, MAX_ATTACHMENT_TEXT)
       : undefined;
@@ -424,7 +424,11 @@ export function ChatPanel() {
         });
       }
       setAttachmentError(failed
-        ? failed.reason instanceof Error ? failed.reason.message : "文件读取失败，请重试"
+        ? typeof failed.reason === "string" && failed.reason
+          ? failed.reason
+          : failed.reason instanceof Error
+            ? failed.reason.message
+            : "文件读取失败，请重试"
         : undefined);
     } catch (error) {
       setAttachmentError(error instanceof Error ? error.message : "打开文件选择器失败，请重试");

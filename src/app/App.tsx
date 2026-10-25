@@ -1,9 +1,10 @@
 import { Bot, Map, Maximize2, Minimize2, PanelLeftOpen, PanelRightClose, Search, Settings2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Select } from "../components/ui/Select";
 import { getTimeline } from "../domain/selectors";
 import { ChatPanel } from "../features/chat/ChatPanel";
 import { TimelinePanel } from "../features/map/TimelinePanel";
+import { SearchOverlay } from "../features/search/SearchOverlay";
 import { SettingsDialog } from "../features/settings/SettingsDialog";
 import { WorkspaceSidebar } from "../features/sidebar/WorkspaceSidebar";
 import { useSettings } from "../state/SettingsProvider";
@@ -15,7 +16,6 @@ export function App() {
   const { snapshot, hydrated, saveStatus, mapOpen, mapPinned, setMapOpen, switchTimeline } = useWorkspace();
   const { preferences, activeAgent, setActiveAgent, openSettings } = useSettings();
   const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
   const [fullscreenBusy, setFullscreenBusy] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(() => fullscreenSupported());
@@ -25,11 +25,22 @@ export function App() {
   const currentTimelines = snapshot.timelines.filter(
     (item) => item.conversationId === snapshot.currentConversationId && item.status === "active",
   );
-  const results = useMemo(() => {
-    const clean = query.trim().toLowerCase();
-    if (!clean) return [];
-    return snapshot.nodes.filter((node) => node.content.toLowerCase().includes(clean)).slice(0, 6);
-  }, [query, snapshot.nodes]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta) return;
+      const key = event.key.toLowerCase();
+      if (key !== "k" && key !== "f") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable) return;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA") && key === "f") return;
+      event.preventDefault();
+      setSearchOpen((open) => !open);
+    };
+    document.addEventListener("keydown", handleShortcut);
+    return () => document.removeEventListener("keydown", handleShortcut);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -156,7 +167,13 @@ export function App() {
                     ? "已同步"
                     : "已本地保存"}
             </span>
-            <button className="icon-button" title="搜索消息" onClick={() => setSearchOpen((open) => !open)}>
+            <button
+              className="icon-button"
+              title="搜索消息 (Ctrl+K)"
+              aria-label="打开全局搜索"
+              aria-expanded={searchOpen}
+              onClick={() => setSearchOpen((open) => !open)}
+            >
               <Search size={18} />
             </button>
             <button className="icon-button mobile-settings" title="设置" onClick={() => openSettings()}>
@@ -182,53 +199,7 @@ export function App() {
           </div>
         </header>
 
-        {searchOpen && (
-          <section className="search-popover">
-            <Search size={17} />
-            <input
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索所有盘面的消息…"
-            />
-            <button
-              onClick={() => {
-                setSearchOpen(false);
-                setQuery("");
-              }}
-            >
-              关闭
-            </button>
-            {query && (
-              <div className="search-results">
-                {results.length ? (
-                  results.map((node) => (
-                    <button
-                      key={node.id}
-                      onClick={() => {
-                        const targetTimeline = snapshot.timelines.find((item) => item.id === node.timelineId);
-                        if (targetTimeline) switchTimeline(targetTimeline.id);
-                        setSearchOpen(false);
-                        window.setTimeout(
-                          () =>
-                            document
-                              .querySelector(`[data-message-id="${node.id}"]`)
-                              ?.scrollIntoView({ behavior: "smooth", block: "center" }),
-                          80,
-                        );
-                      }}
-                    >
-                      <strong>{node.summary}</strong>
-                      <span>{node.content.slice(0, 84)}</span>
-                    </button>
-                  ))
-                ) : (
-                  <p>没有找到匹配消息</p>
-                )}
-              </div>
-            )}
-          </section>
-        )}
+        {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}
 
         <div className={`content-grid ${mapOpen && mapPinned ? "is-pinned" : ""}`}>
           <ChatPanel />
